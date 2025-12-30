@@ -215,3 +215,7 @@ MIT
 ## Author
 
 ProjectYoked
+
+## Contributing
+
+https://github.com/SirStig/projectyoked-react-native-media-engine
