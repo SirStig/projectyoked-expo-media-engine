@@ -24,6 +24,11 @@ export interface EmojiOverlay {
 export interface ExportCompositionConfig {
     videoPath: string;
     outputPath: string;
+
+    // Quality Control
+    quality?: 'low' | 'medium' | 'high';
+    bitrate?: number;
+
     duration?: number;
 
     // Text overlays (parallel arrays)
@@ -49,6 +54,30 @@ export interface ExportCompositionConfig {
     originalVolume?: number; // 0-1
 }
 
+export interface CompositeClip {
+    uri: string;
+    startTime: number;
+    duration: number;
+    filter?: 'grayscale' | 'sepia' | null;
+    transition?: string | null;
+}
+
+export interface CompositeTrack {
+    type: 'video' | 'audio' | 'text';
+    clips: CompositeClip[];
+}
+
+export interface CompositionConfig {
+    outputUri: string;
+    width: number;
+    height: number;
+    frameRate: number;
+    frameRate: number;
+    bitrate?: number;
+    quality?: 'low' | 'medium' | 'high';
+    tracks: CompositeTrack[];
+}
+
 export interface MediaEngineInterface {
     /**
      * Extract audio from a video file
@@ -72,6 +101,13 @@ export interface MediaEngineInterface {
      * @returns Promise resolving to the output video file path
      */
     exportComposition(config: ExportCompositionConfig): Promise<string>;
+
+    /**
+     * Compose a video using the new OpenGL engine
+     * @param config Configuration for the composite video
+     * @returns Promise resolving to the output video file path
+     */
+    composeCompositeVideo(config: CompositionConfig): Promise<string>;
 
     /**
      * Check if the native module is properly loaded

@@ -70,268 +70,299 @@ public class MediaEngineModule: Module {
             return result
         }
 
-        // MARK: - Video Composition (Export)
+        // MARK: - Video Composition (Unified)
         AsyncFunction("exportComposition") { (config: [String: Any]) -> String in
-            guard let outputPath = config["outputPath"] as? String,
-                  let videoPath = config["videoPath"] as? String else {
-                throw NSError(domain: "MediaEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing required paths"])
+             guard let outputPath = config["outputPath"] as? String,
+                   let videoPath = config["videoPath"] as? String else {
+                 throw NSError(domain: "MediaEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing required paths"])
+             }
+             
+             let duration = config["duration"] as? Double ?? 10.0
+             
+             // Map legacy config to new config structure
+             var tracks: [[String: Any]] = []
+             
+             // 1. Video Track
+             tracks.append([
+                "type": "video",
+                "clips": [[
+                    "uri": videoPath,
+                    "startTime": 0.0,
+                    "duration": duration > 0 ? duration : 9999.0,
+                    "resizeMode": "cover"
+                ]]
+             ])
+             
+             // 2. Audio Track (Music)
+             if let musicPath = config["musicPath"] as? String, !musicPath.isEmpty {
+                 let musicVolume = config["musicVolume"] as? Double ?? 0.5
+                 tracks.append([
+                    "type": "audio",
+                    "clips": [[
+                        "uri": musicPath,
+                        "startTime": 0.0,
+                        "duration": duration > 0 ? duration : 9999.0,
+                        "volume": musicVolume // TODO: Handle volume in composeCompositeVideo
+                    ]]
+                 ])
+             }
+             
+             // 3. Text Overlays
+             let textArray = config["textArray"] as? [String] ?? []
+             let textX = config["textX"] as? [Double] ?? []
+             let textY = config["textY"] as? [Double] ?? []
+             let textColors = config["textColors"] as? [String] ?? []
+             let textSizes = config["textSizes"] as? [Double] ?? []
+             let textStarts = config["textStarts"] as? [Double] ?? []
+             let textDurations = config["textDurations"] as? [Double] ?? []
+             
+             if !textArray.isEmpty {
+                 var textClips: [[String: Any]] = []
+                 for i in 0..<textArray.count {
+                     let text = textArray[i]
+                     let clip: [String: Any] = [
+                        "uri": "text:\(text)", // Encoded content
+                        "text": text,
+                        "startTime": textStarts.indices.contains(i) ? textStarts[i] : 0.0,
+                        "duration": textDurations.indices.contains(i) ? textDurations[i] : (duration > 0 ? duration : 10.0),
+                        "x": textX.indices.contains(i) ? textX[i] : 0.5,
+                        "y": textY.indices.contains(i) ? textY[i] : 0.5,
+                        "color": textColors.indices.contains(i) ? textColors[i] : "#FFFFFF",
+                        "fontSize": textSizes.indices.contains(i) ? textSizes[i] : 24.0,
+                        "scale": 1.0 // Text size handles scale
+                     ]
+                     textClips.append(clip)
+                 }
+                 tracks.append(["type": "text", "clips": textClips])
+             }
+             
+             // 4. Emoji Overlays
+             let emojiArray = config["emojiArray"] as? [String] ?? []
+             let emojiX = config["emojiX"] as? [Double] ?? []
+             let emojiY = config["emojiY"] as? [Double] ?? []
+             let emojiSizes = config["emojiSizes"] as? [Double] ?? []
+             let emojiStarts = config["emojiStarts"] as? [Double] ?? []
+             let emojiDurations = config["emojiDurations"] as? [Double] ?? []
+             
+             if !emojiArray.isEmpty {
+                 var emojiClips: [[String: Any]] = []
+                 for i in 0..<emojiArray.count {
+                     let emoji = emojiArray[i]
+                     let clip: [String: Any] = [
+                        "uri": "text:\(emoji)",
+                        "text": emoji,
+                        "startTime": emojiStarts.indices.contains(i) ? emojiStarts[i] : 0.0,
+                        "duration": emojiDurations.indices.contains(i) ? emojiDurations[i] : (duration > 0 ? duration : 10.0),
+                        "x": emojiX.indices.contains(i) ? emojiX[i] : 0.5,
+                        "y": emojiY.indices.contains(i) ? emojiY[i] : 0.5,
+                        "color": "#FFFFFF",
+                        "fontSize": emojiSizes.indices.contains(i) ? emojiSizes[i] : 48.0,
+                        "scale": 1.0
+                     ]
+                     emojiClips.append(clip)
+                 }
+                 tracks.append(["type": "text", "clips": emojiClips])
+             }
+             
+             // Call new engine
+             let advancedConfig: [String: Any] = [
+                 "outputUri": outputPath,
+                 "width": 1280, // Legacy default
+                 "height": 720,
+                 "frameRate": 30,
+                 "tracks": tracks
+             ]
+             
+             // Recursively call the private implementation? 
+             // Or extract implementation to a helper. 
+             // Cannot call AsyncFunction from AsyncFunction easily.
+             // Best to extract `composeVideoImpl` function.
+             return try await composeCompositeVideoImpl(advancedConfig)
+        }
+
+        // MARK: - Advanced Composite Video
+        AsyncFunction("composeCompositeVideo") { (config: [String: Any]) -> String in
+            return try await composeCompositeVideoImpl(config)
+        }
+    }
+
+    private func composeCompositeVideoImpl(_ config: [String: Any]) async throws -> String {
+            guard let outputUri = config["outputUri"] as? String else {
+                throw NSError(domain: "MediaEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing outputUri"])
             }
             
-            let duration = config["duration"] as? Double ?? 10.0
+            let width = config["width"] as? Double ?? 1280
+            let height = config["height"] as? Double ?? 720
+            let frameRate = config["frameRate"] as? Int ?? 30
             
-            // Parse text overlays with timing
-            let textArray = config["textArray"] as? [String] ?? []
-            let textX = config["textX"] as? [Double] ?? []
-            let textY = config["textY"] as? [Double] ?? []
-            let textColors = config["textColors"] as? [String] ?? []
-            let textSizes = config["textSizes"] as? [Double] ?? []
-            let textStarts = config["textStarts"] as? [Double] ?? []
-            let textDurations = config["textDurations"] as? [Double] ?? []
+            let tracks = config["tracks"] as? [[String: Any]] ?? []
             
-            // Parse emoji overlays with timing
-            let emojiArray = config["emojiArray"] as? [String] ?? []
-            let emojiX = config["emojiX"] as? [Double] ?? []
-            let emojiY = config["emojiY"] as? [Double] ?? []
-            let emojiSizes = config["emojiSizes"] as? [Double] ?? []
-            let emojiStarts = config["emojiStarts"] as? [Double] ?? []
-            let emojiDurations = config["emojiDurations"] as? [Double] ?? []
-            
-            // Parse audio settings
-            let musicPath = config["musicPath"] as? String
-            let musicVolume = config["musicVolume"] as? Double ?? 0.5
-            let originalVolume = config["originalVolume"] as? Double ?? 1.0
-            
-            let videoURL = URL(fileURLWithPath: videoPath.replacingOccurrences(of: "file://", with: ""))
-            let outputURL = URL(fileURLWithPath: outputPath.replacingOccurrences(of: "file://", with: ""))
-            
-            try? FileManager.default.removeItem(at: outputURL)
-
             let composition = AVMutableComposition()
-            
-            let asset = AVAsset(url: videoURL)
-            guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
-                throw NSError(domain: "MediaEngine", code: 3, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
-            }
-            
-            let compVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
-            let assetDuration = try await asset.load(.duration)
-            let finalDuration = duration > 0 ? CMTime(seconds: duration, preferredTimescale: 600) : assetDuration
-            
-            try compVideoTrack?.insertTimeRange(CMTimeRange(start: .zero, duration: finalDuration), of: videoTrack, at: .zero)
-            
-            let videoTransform = try await videoTrack.load(.preferredTransform)
-            compVideoTrack?.preferredTransform = videoTransform
-            
-            // Audio mixing setup
-            var audioMixParams: [AVMutableAudioMixInputParameters] = []
-            
-            // Original audio with volume control
-            if let originalAudioTrack = try? await asset.loadTracks(withMediaType: .audio).first {
-                let compAudioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-                try compAudioTrack?.insertTimeRange(CMTimeRange(start: .zero, duration: finalDuration), of: originalAudioTrack, at: .zero)
-                
-                // Apply volume
-                if let track = compAudioTrack {
-                    let params = AVMutableAudioMixInputParameters(track: track)
-                    params.setVolume(Float(originalVolume), at: .zero)
-                    audioMixParams.append(params)
-                }
-            }
-            
-            // Music track with volume control
-            if let musicPath = musicPath, !musicPath.isEmpty, musicVolume > 0 {
-                let musicURL = URL(fileURLWithPath: musicPath.replacingOccurrences(of: "file://", with: ""))
-                let musicAsset = AVAsset(url: musicURL)
-                
-                if let musicAudioTrack = try? await musicAsset.loadTracks(withMediaType: .audio).first {
-                    let compMusicTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-                    let musicDuration = try await musicAsset.load(.duration)
-                    
-                    try compMusicTrack?.insertTimeRange(
-                        CMTimeRange(start: .zero, duration: min(musicDuration, finalDuration)),
-                        of: musicAudioTrack,
-                        at: .zero
-                    )
-                    
-                    // Apply volume
-                    if let track = compMusicTrack {
-                        let params = AVMutableAudioMixInputParameters(track: track)
-                        params.setVolume(Float(musicVolume), at: .zero)
-                        audioMixParams.append(params)
-                    }
-                }
-            }
-            
-            // Create audio mix
-            let audioMix = AVMutableAudioMix()
-            audioMix.inputParameters = audioMixParams
-
-            // Video Composition with proper size handling for rotation
-            let naturalSize = try await videoTrack.load(.naturalSize)
-            var videoSize = naturalSize
-            
-            // Handle rotation - swap dimensions if rotated 90 or 270 degrees
-            let angle = atan2(videoTransform.b, videoTransform.a)
-            let angleDegrees = angle * 180 / .pi
-            if abs(abs(angleDegrees) - 90) < 1 {
-                videoSize = CGSize(width: naturalSize.height, height: naturalSize.width)
-            }
-            
             let videoComposition = AVMutableVideoComposition()
-            videoComposition.renderSize = videoSize
-            videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+            videoComposition.renderSize = CGSize(width: width, height: height)
+            videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate))
             
-            let instruction = AVMutableVideoCompositionInstruction()
-            instruction.timeRange = CMTimeRange(start: .zero, duration: finalDuration)
+            var instructions: [AVVideoCompositionInstruction] = []
             
-            let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compVideoTrack!)
+            let outputURL = URL(fileURLWithPath: outputUri.replacingOccurrences(of: "file://", with: ""))
+            try? FileManager.default.removeItem(at: outputURL)
             
-            // Apply transform to correct rotation
-            var transform = videoTransform
-            if abs(abs(angleDegrees) - 90) < 1 {
-                if angleDegrees > 0 {
-                    // 90 degree rotation
-                    transform = CGAffineTransform(translationX: videoSize.width, y: 0).rotated(by: .pi / 2)
-                } else {
-                    // -90 degree rotation
-                    transform = CGAffineTransform(translationX: 0, y: videoSize.height).rotated(by: -.pi / 2)
+            // Animation Layer Setup (for Overlay)
+            let parentLayer = CALayer()
+            let videoLayer = CALayer()
+            parentLayer.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            videoLayer.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            parentLayer.addSublayer(videoLayer)
+            parentLayer.isGeometryFlipped = true // AVFoundation coordinates
+            
+            var hasOverlays = false
+            
+            for trackData in tracks {
+                let type = trackData["type"] as? String ?? "video"
+                let clips = trackData["clips"] as? [[String: Any]] ?? []
+                
+                if type == "video" {
+                    let compTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+                    
+                    for clip in clips {
+                        guard let uri = clip["uri"] as? String,
+                              let startTime = clip["startTime"] as? Double,
+                              let duration = clip["duration"] as? Double else { continue }
+                        
+                        let videoURL = URL(fileURLWithPath: uri.replacingOccurrences(of: "file://", with: ""))
+                        let asset = AVAsset(url: videoURL)
+                        
+                        if let assetTrack = try? await asset.loadTracks(withMediaType: .video).first {
+                            let range = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
+                            let start = CMTime(seconds: startTime, preferredTimescale: 600)
+                            
+                            try? compTrack?.insertTimeRange(range, of: assetTrack, at: start)
+                            
+                            let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compTrack!)
+                            
+                            // ... (Existing Transform Logic) ...
+                            let x = clip["x"] as? Double ?? 0.0
+                            let y = clip["y"] as? Double ?? 0.0
+                            let scale = clip["scale"] as? Double ?? 1.0
+                            let rotation = clip["rotation"] as? Double ?? 0.0 
+                            let resizeMode = clip["resizeMode"] as? String ?? "cover"
+                            
+                            let naturalSize = try? await assetTrack.load(.naturalSize)
+                            let assetSize = naturalSize ?? CGSize(width: 1280, height: 720)
+                             
+                            let targetW = CGFloat(width)
+                            let targetH = CGFloat(height)
+                            let videoW = assetSize.width
+                            let videoH = assetSize.height
+                            
+                            var scaleX: CGFloat = 1.0
+                            var scaleY: CGFloat = 1.0
+                            
+                            if resizeMode == "cover" {
+                                let widthRatio = targetW / videoW
+                                let heightRatio = targetH / videoH
+                                let ratio = max(widthRatio, heightRatio)
+                                scaleX = ratio; scaleY = ratio
+                            } else if resizeMode == "contain" {
+                                let widthRatio = targetW / videoW
+                                let heightRatio = targetH / videoH
+                                let ratio = min(widthRatio, heightRatio)
+                                scaleX = ratio; scaleY = ratio
+                            } else { 
+                                scaleX = targetW / videoW; scaleY = targetH / videoH
+                            }
+                            
+                            let aspectTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
+                            let scaledW = videoW * scaleX
+                            let scaledH = videoH * scaleY
+                            let dx = (targetW - scaledW) / 2
+                            let dy = (targetH - scaledH) / 2
+                            let finalTransform = aspectTransform.concatenating(CGAffineTransform(translationX: dx, y: dy))
+
+                            layerInstruction.setTransform(finalTransform, at: start)
+                            
+                            let instruction = AVMutableVideoCompositionInstruction()
+                            instruction.timeRange = CMTimeRange(start: start, duration: range.duration)
+                            instruction.layerInstructions = [layerInstruction]
+                            instructions.append(instruction)
+                        }
+                    }
+                } else if type == "audio" {
+                     let compTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+                     for clip in clips {
+                        guard let uri = clip["uri"] as? String,
+                              let startTime = clip["startTime"] as? Double,
+                              let duration = clip["duration"] as? Double else { continue }
+                         
+                         let audioURL = URL(fileURLWithPath: uri.replacingOccurrences(of: "file://", with: ""))
+                         let asset = AVAsset(url: audioURL)
+                         if let assetTrack = try? await asset.loadTracks(withMediaType: .audio).first {
+                             let range = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
+                             let start = CMTime(seconds: startTime, preferredTimescale: 600)
+                             try? compTrack?.insertTimeRange(range, of: assetTrack, at: start)
+                         }
+                     }
+                } else if type == "text" {
+                     hasOverlays = true
+                     for clip in clips {
+                         let text = clip["text"] as? String ?? ""
+                         let fontSize = clip["fontSize"] as? Double ?? 24.0
+                         let x = clip["x"] as? Double ?? 0.5
+                         let y = clip["y"] as? Double ?? 0.5
+                         let colorHex = clip["color"] as? String ?? "#FFFFFF"
+                         let startTime = clip["startTime"] as? Double ?? 0.0
+                         let duration = clip["duration"] as? Double ?? 5.0
+                         
+                         let textLayer = CATextLayer()
+                         textLayer.string = text
+                         textLayer.fontSize = CGFloat(fontSize)
+                         textLayer.foregroundColor = UIColor(hex: colorHex)?.cgColor ?? UIColor.white.cgColor
+                         textLayer.alignmentMode = .center
+                         textLayer.contentsScale = UIScreen.main.scale
+                         
+                         // Size and Pos
+                         let w = CGFloat(width) * 0.8 // Max width?
+                         let h = CGFloat(fontSize) * 1.5
+                         
+                         textLayer.frame = CGRect(
+                             x: CGFloat(x) * CGFloat(width) - w/2,
+                             y: CGFloat(y) * CGFloat(height) - h/2,
+                             width: w,
+                             height: h
+                         )
+                         
+                         // Animation (Fade in/out)
+                         textLayer.opacity = 0
+                         
+                         let animGroup = CAAnimationGroup()
+                         let show = CABasicAnimation(keyPath: "opacity")
+                         show.fromValue = 0; show.toValue = 1
+                         show.beginTime = AVCoreAnimationBeginTimeAtZero + startTime
+                         show.duration = 0.1
+                         show.fillMode = .forwards
+                         show.isRemovedOnCompletion = false
+                         
+                         let hide = CABasicAnimation(keyPath: "opacity")
+                         hide.fromValue = 1; hide.toValue = 0
+                         hide.beginTime = AVCoreAnimationBeginTimeAtZero + startTime + duration
+                         hide.duration = 0.1
+                         hide.fillMode = .forwards
+                         hide.isRemovedOnCompletion = false
+                         
+                         animGroup.animations = [show, hide]
+                         animGroup.duration = 9999
+                         animGroup.beginTime = AVCoreAnimationBeginTimeAtZero
+                         animGroup.fillMode = .forwards
+                         animGroup.isRemovedOnCompletion = false
+                         
+                         textLayer.add(animGroup, forKey: "visibility")
+                         parentLayer.addSublayer(textLayer)
+                     }
                 }
             }
-            layerInstruction.setTransform(transform, at: .zero)
-            instruction.layerInstructions = [layerInstruction]
-            videoComposition.instructions = [instruction]
             
-            // Overlay Burn-in with timing animations
-            if !textArray.isEmpty || !emojiArray.isEmpty {
-                let parentLayer = CALayer()
-                parentLayer.frame = CGRect(origin: .zero, size: videoSize)
-                parentLayer.isGeometryFlipped = true  // Fix coordinate system
-                
-                let videoLayer = CALayer()
-                videoLayer.frame = CGRect(origin: .zero, size: videoSize)
-                parentLayer.addSublayer(videoLayer)
-                
-                // Scale factor for text sizes (match Android's scaling)
-                let scaleFactor = videoSize.width / 375.0
-                
-                // Text overlays with timing
-                for i in 0..<textArray.count {
-                    let textLayer = CATextLayer()
-                    textLayer.string = textArray[i]
-                    textLayer.fontSize = CGFloat(textSizes.indices.contains(i) ? textSizes[i] : 24) * scaleFactor
-                    
-                    // Parse color
-                    let colorString = textColors.indices.contains(i) ? textColors[i] : "#FFFFFF"
-                    textLayer.foregroundColor = UIColor(hex: colorString)?.cgColor ?? UIColor.white.cgColor
-                    
-                    textLayer.alignmentMode = .center
-                    textLayer.contentsScale = UIScreen.main.scale
-                    
-                    // Position
-                    let xPos = textX.indices.contains(i) ? textX[i] : 0.5
-                    let yPos = textY.indices.contains(i) ? textY[i] : 0.5
-                    
-                    let width: CGFloat = 400 * scaleFactor
-                    let height: CGFloat = 100 * scaleFactor
-                    textLayer.frame = CGRect(
-                        x: videoSize.width * CGFloat(xPos) - width/2,
-                        y: videoSize.height * CGFloat(yPos) - height/2,
-                        width: width,
-                        height: height
-                    )
-                    
-                    // Add timing animation
-                    let startTime = textStarts.indices.contains(i) ? textStarts[i] : 0.0
-                    let itemDuration = textDurations.indices.contains(i) ? textDurations[i] : duration
-                    
-                    // Initially hidden
-                    textLayer.opacity = 0
-                    
-                    // Show animation
-                    let showAnim = CABasicAnimation(keyPath: "opacity")
-                    showAnim.fromValue = 0
-                    showAnim.toValue = 1
-                    showAnim.beginTime = AVCoreAnimationBeginTimeAtZero + startTime
-                    showAnim.duration = 0.01
-                    showAnim.fillMode = .forwards
-                    showAnim.isRemovedOnCompletion = false
-                    
-                    // Hide animation
-                    let hideAnim = CABasicAnimation(keyPath: "opacity")
-                    hideAnim.fromValue = 1
-                    hideAnim.toValue = 0
-                    hideAnim.beginTime = AVCoreAnimationBeginTimeAtZero + startTime + itemDuration
-                    hideAnim.duration = 0.01
-                    hideAnim.fillMode = .forwards
-                    hideAnim.isRemovedOnCompletion = false
-                    
-                    let animGroup = CAAnimationGroup()
-                    animGroup.animations = [showAnim, hideAnim]
-                    animGroup.duration = duration
-                    animGroup.beginTime = AVCoreAnimationBeginTimeAtZero
-                    animGroup.fillMode = .forwards
-                    animGroup.isRemovedOnCompletion = false
-                    
-                    textLayer.add(animGroup, forKey: "visibility")
-                    parentLayer.addSublayer(textLayer)
-                }
-                
-                // Emoji overlays with timing
-                for i in 0..<emojiArray.count {
-                    let emojiLayer = CATextLayer()
-                    emojiLayer.string = emojiArray[i]
-                    let size = CGFloat(emojiSizes.indices.contains(i) ? emojiSizes[i] : 48) * scaleFactor
-                    emojiLayer.fontSize = size
-                    emojiLayer.alignmentMode = .center
-                    emojiLayer.contentsScale = UIScreen.main.scale
-                    
-                    // Position
-                    let xPos = emojiX.indices.contains(i) ? emojiX[i] : 0.5
-                    let yPos = emojiY.indices.contains(i) ? emojiY[i] : 0.5
-                    
-                    emojiLayer.frame = CGRect(
-                        x: videoSize.width * CGFloat(xPos) - size/2,
-                        y: videoSize.height * CGFloat(yPos) - size/2,
-                        width: size,
-                        height: size
-                    )
-                    
-                    // Add timing animation
-                    let startTime = emojiStarts.indices.contains(i) ? emojiStarts[i] : 0.0
-                    let itemDuration = emojiDurations.indices.contains(i) ? emojiDurations[i] : duration
-                    
-                    // Initially hidden
-                    emojiLayer.opacity = 0
-                    
-                    // Show animation
-                    let showAnim = CABasicAnimation(keyPath: "opacity")
-                    showAnim.fromValue = 0
-                    showAnim.toValue = 1
-                    showAnim.beginTime = AVCoreAnimationBeginTimeAtZero + startTime
-                    showAnim.duration = 0.01
-                    showAnim.fillMode = .forwards
-                    showAnim.isRemovedOnCompletion = false
-                    
-                    // Hide animation
-                    let hideAnim = CABasicAnimation(keyPath: "opacity")
-                    hideAnim.fromValue = 1
-                    hideAnim.toValue = 0
-                    hideAnim.beginTime = AVCoreAnimationBeginTimeAtZero + startTime + itemDuration
-                    hideAnim.duration = 0.01
-                    hideAnim.fillMode = .forwards
-                    hideAnim.isRemovedOnCompletion = false
-                    
-                    let animGroup = CAAnimationGroup()
-                    animGroup.animations = [showAnim, hideAnim]
-                    animGroup.duration = duration
-                    animGroup.beginTime = AVCoreAnimationBeginTimeAtZero
-                    animGroup.fillMode = .forwards
-                    animGroup.isRemovedOnCompletion = false
-                    
-                    emojiLayer.add(animGroup, forKey: "visibility")
-                    parentLayer.addSublayer(emojiLayer)
-                }
-                
+            videoComposition.instructions = instructions
+            if hasOverlays {
                 videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parentLayer)
             }
             
@@ -342,16 +373,15 @@ public class MediaEngineModule: Module {
             exportSession.outputURL = outputURL
             exportSession.outputFileType = .mp4
             exportSession.videoComposition = videoComposition
-            exportSession.audioMix = audioMix
             
             await exportSession.export()
              
             if exportSession.status == .completed {
-                return outputPath
+                return outputUri
             } else {
                 throw NSError(domain: "MediaEngine", code: 5, userInfo: [NSLocalizedDescriptionKey: exportSession.error?.localizedDescription ?? "Video Export Failed"])
             }
-        }
+    }
     }
 }
 
