@@ -5,30 +5,36 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.media.MediaMuxer 
+import android.media.MediaMuxer
 import android.util.Log
-import java.io.File 
+import java.io.File
 import java.nio.ByteBuffer
-import kotlin.math.max
 
-class AudioMixer(private val context: Context, private val config: CompositeVideoComposer.CompositionConfig) {
+class AudioMixer(
+        private val context: Context,
+        private val config: CompositeVideoComposer.CompositionConfig
+) {
 
     private val TAG = "AudioMixer"
-    
+
     fun mix(): String? {
         Log.d(TAG, "Starting Audio Mix to File")
-        
+
         val audioClips = ArrayList<PlaybackClip>()
         config.tracks.forEach { track ->
-            if (track.type == CompositeVideoComposer.TrackType.VIDEO || track.type == CompositeVideoComposer.TrackType.AUDIO) {
+            if (track.type == CompositeVideoComposer.TrackType.VIDEO ||
+                            track.type == CompositeVideoComposer.TrackType.AUDIO
+            ) {
                 track.clips.forEach { clip -> audioClips.add(PlaybackClip(clip)) }
             }
         }
-        
+
         if (audioClips.isEmpty()) return null
-        
+
         // Temp File
-        val parentDir = android.net.Uri.parse(config.outputUri).path?.let { File(it).parent } ?: context.cacheDir.absolutePath
+        val parentDir =
+                android.net.Uri.parse(config.outputUri).path?.let { File(it).parent }
+                        ?: context.cacheDir.absolutePath
         val outputPath = "$parentDir/temp_audio_mix_${System.currentTimeMillis()}.m4a"
         val muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         var muxerAudioTrackIndex = -1
@@ -38,70 +44,125 @@ class AudioMixer(private val context: Context, private val config: CompositeVide
         val sampleRate = 44100
         val channelCount = 2
         val bitrate = 128000
-        
-        val outputFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channelCount)
+
+        val outputFormat =
+                MediaFormat.createAudioFormat(
+                        MediaFormat.MIMETYPE_AUDIO_AAC,
+                        sampleRate,
+                        channelCount
+                )
         outputFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-        outputFormat.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-        
+        outputFormat.setInteger(
+                MediaFormat.KEY_AAC_PROFILE,
+                MediaCodecInfo.CodecProfileLevel.AACObjectLC
+        )
+
         val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
         encoder.configure(outputFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         encoder.start()
-        
+
         // Prepare Clips
         audioClips.forEach { it.prepare() }
-        
-        val bufferSize = 4096
-        val mixBuffer = FloatArray(bufferSize * channelCount) 
+
+        val bufferSize = 1024
+        val mixBuffer = FloatArray(bufferSize * channelCount)
         val shortBuffer = ShortArray(bufferSize * channelCount)
-        
-        val durationUs = config.tracks.flatMap { it.clips }.maxOfOrNull { it.startTime + it.duration }?.times(1_000_000)?.toLong() ?: 0L
+
+        val durationUs =
+                config.tracks
+                        .flatMap { it.clips }
+                        .maxOfOrNull { it.startTime + it.duration }
+                        ?.times(1_000_000)
+                        ?.toLong()
+                        ?: 0L
         var currentTimeUs = 0L
         val usPerSample = 1_000_000.0 / sampleRate.toDouble()
-        
+
         val encoderBufferInfo = MediaCodec.BufferInfo()
         var outputDone = false
-        
+
+        var eosQueued = false
+
         try {
             while (currentTimeUs < durationUs || !outputDone) {
                 // A. Mixing
                 if (currentTimeUs < durationUs) {
                     mixBuffer.fill(0f)
-                    
+
                     audioClips.forEach { clip ->
                         if (clip.isActive(currentTimeUs)) {
-                             val samples = clip.readSamples(bufferSize, sampleRate, currentTimeUs)
-                             for (i in samples.indices) {
-                                 if (i < mixBuffer.size) mixBuffer[i] += samples[i]
-                             }
+                            val samples = clip.readSamples(bufferSize, sampleRate, currentTimeUs)
+                            for (i in samples.indices) {
+                                if (i < mixBuffer.size) mixBuffer[i] += samples[i]
+                            }
                         }
                     }
-                    
+
                     for (i in mixBuffer.indices) {
                         shortBuffer[i] = (mixBuffer[i].coerceIn(-1f, 1f) * 32767).toInt().toShort()
                     }
-                    
-                    val inputIndex = encoder.dequeueInputBuffer(1000)
+
+                    var inputIndex = -1
+                    var attempts = 0
+                    while (inputIndex < 0 && attempts < 50) {
+                        inputIndex = encoder.dequeueInputBuffer(10000) // Wait 10ms
+                        if (inputIndex < 0) {
+                            attempts++
+                        }
+                    }
+
                     if (inputIndex >= 0) {
                         val inputBuf = encoder.getInputBuffer(inputIndex)!!
+
+                        val bytesNeeded = shortBuffer.size * 2
+                        if (inputBuf.capacity() < bytesNeeded) {
+                            Log.w(
+                                    TAG,
+                                    "Input buffer too small! Capacity: ${inputBuf.capacity()}, Needed: $bytesNeeded"
+                            )
+                        }
+
                         inputBuf.clear()
                         val byteBuf = ByteBuffer.allocate(shortBuffer.size * 2)
                         byteBuf.order(java.nio.ByteOrder.LITTLE_ENDIAN)
                         byteBuf.asShortBuffer().put(shortBuffer)
                         inputBuf.put(byteBuf.array())
-                        encoder.queueInputBuffer(inputIndex, 0, inputBuf.capacity(), currentTimeUs, 0)
+                        encoder.queueInputBuffer(
+                                inputIndex,
+                                0,
+                                inputBuf.capacity(),
+                                currentTimeUs,
+                                0
+                        )
+                    } else {
+                        Log.e(
+                                TAG,
+                                "Audio Encoder Input full after retries, dropping chunk at $currentTimeUs"
+                        )
                     }
-                    
+
                     currentTimeUs += (bufferSize * usPerSample * channelCount / 2).toLong()
                 } else {
-                    if (!outputDone) {
+                    if (!eosQueued) {
                         val inputIndex = encoder.dequeueInputBuffer(1000)
-                        if (inputIndex >= 0) encoder.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        if (inputIndex >= 0) {
+                            Log.d(TAG, "Queueing Audio EOS")
+                            encoder.queueInputBuffer(
+                                    inputIndex,
+                                    0,
+                                    0,
+                                    0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                            )
+                            eosQueued = true
+                        }
                     }
                 }
-                
+
                 // B. Draining to Muxer
                 var encoderStatus = encoder.dequeueOutputBuffer(encoderBufferInfo, 1000)
-                while (encoderStatus >= 0 || encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                while (encoderStatus >= 0 ||
+                        encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         muxerAudioTrackIndex = muxer.addTrack(encoder.outputFormat)
                         muxer.start()
@@ -109,23 +170,23 @@ class AudioMixer(private val context: Context, private val config: CompositeVide
                         encoderStatus = encoder.dequeueOutputBuffer(encoderBufferInfo, 0)
                         continue
                     }
-    
-                    if ((encoderBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) encoderBufferInfo.size = 0
-                    
+
+                    if ((encoderBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0)
+                            encoderBufferInfo.size = 0
+
                     if (encoderBufferInfo.size != 0 && muxerStarted) {
                         val encodedData = encoder.getOutputBuffer(encoderStatus)!!
                         encodedData.position(encoderBufferInfo.offset)
                         encodedData.limit(encoderBufferInfo.offset + encoderBufferInfo.size)
                         muxer.writeSampleData(muxerAudioTrackIndex, encodedData, encoderBufferInfo)
                     }
-                    
+
                     encoder.releaseOutputBuffer(encoderStatus, false)
-                    if ((encoderBufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outputDone = true
+                    if ((encoderBufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0)
+                            outputDone = true
                     encoderStatus = encoder.dequeueOutputBuffer(encoderBufferInfo, 0)
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Mixing error", e)
         } finally {
             try {
                 audioClips.forEach { it.release() }
@@ -134,27 +195,27 @@ class AudioMixer(private val context: Context, private val config: CompositeVide
                 if (muxerStarted) muxer.stop()
                 muxer.release()
             } catch (e: Exception) {
-                 Log.e(TAG, "Cleanup error", e)
+                Log.e(TAG, "Cleanup error", e)
             }
         }
-        
+
         Log.d(TAG, "Mix Complete. File: $outputPath")
         if (!muxerStarted) {
-             Log.w(TAG, "Muxer never started. No audio data mixed.")
-             // Delete temp file if empty
-             try { 
-                File(outputPath).delete() 
-             } catch(e: Exception) {}
-             return null
+            Log.w(TAG, "Muxer never started. No audio data mixed.")
+            // Delete temp file if empty
+            try {
+                File(outputPath).delete()
+            } catch (e: Exception) {}
+            return null
         }
-        
+
         val file = File(outputPath)
         if (file.exists() && file.length() > 0) {
             Log.d(TAG, "Audio Mix File Created: Size=${file.length()} bytes")
             return outputPath
         } else {
-             Log.e(TAG, "Audio Mix File is empty or missing")
-             return null
+            Log.e(TAG, "Audio Mix File is empty or missing")
+            return null
         }
     }
 
@@ -165,141 +226,224 @@ class AudioMixer(private val context: Context, private val config: CompositeVide
         private var format: MediaFormat? = null
         private var inputDone = false
         private var outputDone = false
-        
+
         // Buffers
-        private val tempBuffer = ShortArray(4096 * 2) // Max temp buffer
+        // Increased buffer size to ~2 seconds of stereo audio (44.1k * 2ch * 2 bytes ~= 176k)
+        private val tempBuffer = ShortArray(48000 * 4)
         private var bufferPos = 0
         private var bufferLimit = 0
-        
+
+        // Resampling State
+        private var inputSampleRate = 44100
+        private val TARGET_SAMPLE_RATE = 44100
+        private var fractionalPos = 0.0
+
         fun prepare() {
             try {
+                // Fix: Skip audio extraction for image files
+                val lowerUri = clip.uri.lowercase()
+                if (lowerUri.endsWith(".png") ||
+                                lowerUri.endsWith(".jpg") ||
+                                lowerUri.endsWith(".jpeg") ||
+                                lowerUri.endsWith(".bmp") ||
+                                lowerUri.endsWith(".webp") ||
+                                lowerUri.endsWith(".gif")
+                ) {
+                    return
+                }
+
                 val e = MediaExtractor()
                 val path = if (clip.uri.startsWith("file://")) clip.uri.substring(7) else clip.uri
                 e.setDataSource(path)
-                
+
                 var trackIndex = -1
                 for (i in 0 until e.trackCount) {
-                     val f = e.getTrackFormat(i)
-                     if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
-                         trackIndex = i
-                         format = f
-                         break
-                     }
+                    val f = e.getTrackFormat(i)
+                    val mime = f.getString(MediaFormat.KEY_MIME)
+                    if (mime?.startsWith("audio/") == true) {
+                        trackIndex = i
+                        format = f
+                        break
+                    }
                 }
-                
+
                 if (trackIndex >= 0) {
                     extractor = e
                     extractor!!.selectTrack(trackIndex)
                     val mime = format!!.getString(MediaFormat.KEY_MIME)!!
+                    inputSampleRate = format!!.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+
                     decoder = MediaCodec.createDecoderByType(mime)
                     decoder!!.configure(format, null, null, 0)
                     decoder!!.start()
-                    // Seek to start of CLIP in FILE (clipStart logic missing in config object but implied in full plan)
-                    // For now, assume clip plays from beginning of file.
                 }
             } catch (ex: Exception) {
                 Log.e("PlaybackClip", "Error preparing ${clip.uri}", ex)
             }
         }
-        
+
         fun isActive(timeUs: Long): Boolean {
             val startUs = (clip.startTime * 1_000_000.0).toLong()
             val endUs = ((clip.startTime + clip.duration) * 1_000_000.0).toLong()
             return timeUs in startUs..endUs
         }
-        
+
         fun readSamples(count: Int, targetRate: Int, timelineTimeUs: Long): FloatArray {
-            if (decoder == null) return FloatArray(count * 2) // Silent
-            
-            // Logic to fetch 'count' samples (stereo)
-            // This is complex because we need to drain decoder.
-            // Simplified:
-            val output = FloatArray(count * 2) // Stereo
+            if (decoder == null) return FloatArray(count * 2)
+
+            val output = FloatArray(count * 2)
             var outIdx = 0
-            
+            val vol = clip.volume
+            val step = inputSampleRate.toDouble() / TARGET_SAMPLE_RATE.toDouble()
+
             try {
-               // Ensure we have data in temp buffer
-               // Fill output from temp buffer, if empty, decode more.
-               while (outIdx < output.size) {
-                   if (bufferPos < bufferLimit) {
-                       // Copy from temp
-                       val sample = tempBuffer[bufferPos++]
-                       output[outIdx++] = sample / 32768f
-                   } else {
-                       // Decode more
-                       if (!pullMoreData()) {
-                           break // EOS or error
-                       }
-                   }
-               }
+                while (outIdx < output.size) {
+                    // Check if we have enough data (at least 2 stereo frames for interpolation)
+                    if (bufferPos + 4 >= bufferLimit) {
+                        fillBuffer()
+                        // If still not enough data after fill, we are likely EOS or starved
+                        if (bufferPos + 4 >= bufferLimit) break
+                    }
+
+                    // Linear Interpolation
+                    val currentL = tempBuffer[bufferPos]
+                    val currentR = tempBuffer[bufferPos + 1]
+                    val nextL = tempBuffer[bufferPos + 2]
+                    val nextR = tempBuffer[bufferPos + 3]
+
+                    val frac = fractionalPos.toFloat()
+                    val sampleL = currentL + frac * (nextL - currentL)
+                    val sampleR = currentR + frac * (nextR - currentR)
+
+                    output[outIdx++] = (sampleL / 32768f) * vol
+                    output[outIdx++] = (sampleR / 32768f) * vol
+
+                    fractionalPos += step
+                    while (fractionalPos >= 1.0) {
+                        fractionalPos -= 1.0
+                        bufferPos += 2
+                    }
+                }
             } catch (e: Exception) {
-               // Log.e("PlaybackClip", "Error reading samples", e)
+                // Log.e("PlaybackClip", "Error reading samples", e)
             }
-            
             return output
         }
-        
-        private fun pullMoreData(): Boolean {
-             val dec = decoder ?: return false
-             val ext = extractor ?: return false
-             val info = MediaCodec.BufferInfo()
-             
-             // Feed
-             if (!inputDone) {
-                 val inIdx = dec.dequeueInputBuffer(1000)
-                 if (inIdx >= 0) {
-                     val buf = dec.getInputBuffer(inIdx)!!
-                     val size = ext.readSampleData(buf, 0)
-                     if (size < 0) {
-                         dec.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                         inputDone = true
-                     } else {
-                         dec.queueInputBuffer(inIdx, 0, size, ext.sampleTime, 0)
-                         ext.advance()
-                     }
-                 }
-             }
-             
-             // Drain
-             val outIdx = dec.dequeueOutputBuffer(info, 1000)
-             if (outIdx >= 0) {
-                 if (info.size > 0) {
-                     val buf = dec.getOutputBuffer(outIdx)!!
-                     buf.position(info.offset)
-                     buf.limit(info.offset + info.size)
-                     
-                     // Assuming 16-bit PCM output. 
-                     // IMPORTANT: Must handle channel count and resampling if mismatch.
-                     // MVP: Assume 44.1/Stereo match or near enough.
-                     
-                     // Convert ByteBuffer to ShortArray
-                     // If stereo, fine. If mono, we should duplicate?
-                     // Let's safe-check buffer size
-                     val len = info.size / 2
-                     if (len > tempBuffer.size) { 
-                        // Resize if needed or partial? Just clap
-                     }
-                     // Copy
-                     val shorts = ShortArray(len)
-                     buf.asShortBuffer().get(shorts)
-                     
-                     // To Temp Buffer (Naive copy, overwriting old)
-                     System.arraycopy(shorts, 0, tempBuffer, 0, shorts.size)
-                     bufferPos = 0
-                     bufferLimit = shorts.size
-                     
-                     dec.releaseOutputBuffer(outIdx, false)
-                     return true
-                 }
-                 dec.releaseOutputBuffer(outIdx, false)
-                 if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) return false
-             }
-             return false // Try again?
+
+        private fun fillBuffer() {
+            // 1. Compact Buffer
+            val remaining = bufferLimit - bufferPos
+            if (remaining > 0 && bufferPos > 0) {
+                System.arraycopy(tempBuffer, bufferPos, tempBuffer, 0, remaining)
+            }
+            bufferPos = 0
+            bufferLimit = remaining
+
+            if (outputDone) return
+
+            // 2. Aggressive Fill Loop
+            // Try to fill buffer until it's at least half full, or we hit EOS, or timeout
+            var loops = 0
+            // We give up after 50 loops (~50-100ms) to avoid blocking UI too long,
+            // but enough to catch up on decoding
+            val minFill = tempBuffer.size / 2
+
+            while (bufferLimit < minFill && loops < 50 && !outputDone) {
+                val didWork = doDecodeStep()
+                if (!didWork) {
+                    loops++
+                    if (inputDone && !outputDone) {
+                        // Waiting for last output...
+                        continue
+                    }
+                } else {
+                    loops = 0 // Reset timeout if we are making progress
+                }
+            }
         }
-        
+
+        private fun doDecodeStep(): Boolean {
+            val dec = decoder ?: return false
+            val ext = extractor ?: return false
+            var didWork = false
+
+            // Feed Input
+            if (!inputDone) {
+                val inIdx = dec.dequeueInputBuffer(1000)
+                if (inIdx >= 0) {
+                    val buf = dec.getInputBuffer(inIdx)!!
+                    val size = ext.readSampleData(buf, 0)
+                    if (size < 0) {
+                        dec.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        inputDone = true
+                    } else {
+                        dec.queueInputBuffer(inIdx, 0, size, ext.sampleTime, 0)
+                        ext.advance()
+                    }
+                    didWork = true
+                }
+            }
+
+            // Drain Output
+            val info = MediaCodec.BufferInfo()
+            val outIdx = dec.dequeueOutputBuffer(info, 1000)
+
+            if (outIdx >= 0) {
+                if (info.size > 0) {
+                    val buf = dec.getOutputBuffer(outIdx)!!
+                    buf.position(info.offset)
+                    buf.limit(info.offset + info.size)
+
+                    // Check for format change/update sample rate if needed
+                    // (optional enhancement, but safe to trust flow for now)
+
+                    val samplesRead = info.size / 2
+                    val decodedShorts = ShortArray(samplesRead)
+                    buf.asShortBuffer().get(decodedShorts)
+
+                    val inputChannels = format?.getInteger(MediaFormat.KEY_CHANNEL_COUNT) ?: 1
+                    val spaceRemaining = tempBuffer.size - bufferLimit
+
+                    if (inputChannels == 1) {
+                        // Mono -> Stereo
+                        var w = bufferLimit
+                        var r = 0
+                        while (r < samplesRead && w < tempBuffer.size - 1) {
+                            val s = decodedShorts[r++]
+                            tempBuffer[w++] = s
+                            tempBuffer[w++] = s
+                        }
+                        bufferLimit = w
+                    } else {
+                        // Stereo
+                        val copyLen = kotlin.math.min(samplesRead, spaceRemaining)
+                        System.arraycopy(decodedShorts, 0, tempBuffer, bufferLimit, copyLen)
+                        bufferLimit += copyLen
+                    }
+                    didWork = true
+                }
+                dec.releaseOutputBuffer(outIdx, false)
+                if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                    outputDone = true
+                }
+            } else if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                // Update format
+                val newFormat = dec.outputFormat
+                if (newFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                    inputSampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                }
+                didWork = true
+            }
+
+            return didWork
+        }
+
         fun release() {
-            try { decoder?.stop(); decoder?.release() } catch(e:Exception){}
-            try { extractor?.release() } catch(e:Exception){}
+            try {
+                decoder?.stop()
+                decoder?.release()
+                extractor?.release()
+            } catch (e: Exception) {}
         }
     }
 }

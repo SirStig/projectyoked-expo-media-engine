@@ -53,7 +53,7 @@ class TextureRenderer {
     // fragment shader with external texture support and simple filters
     private val mFragmentShader = """
         #extension GL_OES_EGL_image_external : require
-        precision mediump float;
+        precision highp float;
         varying vec2 vTextureCoord;
         uniform samplerExternalOES sTexture;
         uniform int uFilterType; // 0=None, 1=Grayscale, 2=Sepia
@@ -62,14 +62,14 @@ class TextureRenderer {
             vec4 color = texture2D(sTexture, vTextureCoord);
             
             if (uFilterType == 1) { // Grayscale
-                float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-                gl_FragColor = vec4(gray, gray, gray, color.a);
+                // Rec. 709 Luma coefficients
+                float gray = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
                 gl_FragColor = vec4(gray, gray, gray, color.a);
             } else if (uFilterType == 2) { // Sepia
                 float r = dot(color.rgb, vec3(0.393, 0.769, 0.189));
                 float g = dot(color.rgb, vec3(0.349, 0.686, 0.168));
                 float b = dot(color.rgb, vec3(0.272, 0.534, 0.131));
-                gl_FragColor = vec4(clamp(r, 0.0, 1.0), clamp(g, 0.0, 1.0), clamp(b, 0.0, 1.0), color.a);
+                gl_FragColor = vec4(min(r, 1.0), min(g, 1.0), min(b, 1.0), color.a);
             } else {
                 gl_FragColor = color;
             }

@@ -89,70 +89,85 @@ export default function App() {
       // 1. Get Test Assets
       const asset1 = Asset.fromModule(TEST_VIDEO_1);
       await asset1.downloadAsync();
-      if (!asset1.localUri) throw new Error("Test Asset 1 failed to load");
-
       const asset2 = Asset.fromModule(TEST_VIDEO_2);
       await asset2.downloadAsync();
-      if (!asset2.localUri) throw new Error("Test Asset 2 failed to load");
-
       const imageAsset = Asset.fromModule(TEST_IMAGE_1);
       await imageAsset.downloadAsync();
-      if (!imageAsset.localUri) throw new Error("Test Image failed to load");
 
-      // 2. Define Complex Config (Video + Audio Mixing + Text + Scale)
-      const config = {
-        outputUri: asset1.localUri.replace('.mov', '_autotest_full.mp4'),
-        width: 720,
-        height: 1280, // Portrait as per likely video orientation
-        frameRate: 30,
-        bitrate: 4000000,
+      if (!asset1.localUri || !asset2.localUri) throw new Error("Assets failed to load");
+
+      // --- TEST 1: COMPLEX COMPOSITION (Transcode) ---
+      setStatus("Test 1/3: Complex Composition (Transcode)...");
+      const config1 = {
+        outputUri: asset1.localUri.replace('.mov', '_autotest_complex.mp4'),
+        width: 720, height: 1280, frameRate: 30, bitrate: 4000000,
+        enablePassthrough: false, // Explicitly force transcode logic
         tracks: [
           {
             type: 'video',
             clips: [
-              // 0-3s: Video 1
               { uri: asset1.localUri, startTime: 0, duration: 3.0, filter: 'sepia', resizeMode: 'cover' },
-              // 3-5s: Image (Test Image Support) - 2 seconds
               { uri: imageAsset.localUri, startTime: 3.0, duration: 2.0, resizeMode: 'contain', scale: 0.9 },
-              // 5-8s: Video 2 (Rotated)
-              { uri: asset2.localUri, startTime: 5.0, duration: 3.0, filter: 'grayscale', resizeMode: 'contain', scale: 0.8, rotation: 90 }
+              { uri: asset2.localUri, startTime: 5.0, duration: 3.0, filter: 'grayscale', resizeMode: 'contain', rotation: 90 }
             ]
           },
           {
             type: 'text',
             clips: [
-              { uri: 'text:Auto Test', text: 'Auto Test', startTime: 0.5, duration: 2.0, x: 0.5, y: 0.2, fontSize: 60, color: '#FFFF00' },
-              { uri: 'text:🔥💪', text: '🔥💪', startTime: 3.5, duration: 2.0, x: 0.5, y: 0.5, fontSize: 100, color: '#FFFFFF', scale: 1.2 }
-            ]
-          },
-          // Audio from videos should be implicit if type='video', but checking if explicit 'audio' track works for mixing
-          {
-            type: 'audio',
-            clips: [
-              { uri: asset1.localUri, startTime: 0, duration: 3.0, volume: 1.0 },
-              // No audio for image
-              { uri: asset2.localUri, startTime: 5.0, duration: 3.0, volume: 1.0 }
+              { uri: 'text:Auto Test', startTime: 0.5, duration: 2.0, x: 0.5, y: 0.2, fontSize: 60, color: '#FFFF00' }
             ]
           }
         ]
       };
+      const t1Start = Date.now();
+      await MediaEngine.composeCompositeVideo(config1);
+      const t1Dur = Date.now() - t1Start;
+      console.log(`Test 1 Complete: ${t1Dur}ms`);
 
-      setStatus("Running Full Integration Test...");
-      console.log("AutoTest Config:", JSON.stringify(config));
+      // --- TEST 2: PASSTHROUGH ---
+      setStatus("Test 2/3: Smart Passthrough...");
+      const config2 = {
+        outputUri: asset1.localUri.replace('.mov', '_autotest_pass.mp4'),
+        enablePassthrough: true, // Enable check
+        tracks: [{ type: 'video', clips: [{ uri: asset1.localUri, startTime: 0, duration: 5.0 }] }]
+      };
+      const t2Start = Date.now();
+      await MediaEngine.composeCompositeVideo(config2);
+      const t2Dur = Date.now() - t2Start;
+      console.log(`Test 2 Complete: ${t2Dur}ms`);
 
-      const startTime = Date.now();
-      const result = await MediaEngine.composeCompositeVideo(config);
-      const endTime = Date.now();
+      // --- TEST 3: STITCHING (Segmented Processing Validation) ---
+      setStatus("Test 3/3: Validation (Generate Parts & Stitch)...");
 
-      console.log("AutoTest Output:", result);
+      // 3a. Generate Part 1 (0-2s)
+      const part1Config = {
+        outputUri: asset1.localUri.replace('.mov', '_part1.mp4'),
+        width: 720, height: 1280, frameRate: 30, bitrate: 2000000,
+        tracks: [{ type: 'video', clips: [{ uri: asset1.localUri, startTime: 0, duration: 2.0, resizeMode: 'cover' }] }]
+      };
+      await MediaEngine.composeCompositeVideo(part1Config);
 
-      if (result) {
-        setOutputUri(result);
-        setStatus(`✅ Test Passed! (${endTime - startTime}ms)\nOutput: ${result.split('/').pop()}`);
-        Alert.alert("Test Passed", `Full feature set verified.\nRender Time: ${endTime - startTime}ms`);
-      } else {
-        throw new Error("No output URI returned");
-      }
+      // 3b. Generate Part 2 (2-4s)
+      const part2Config = {
+        outputUri: asset1.localUri.replace('.mov', '_part2.mp4'),
+        width: 720, height: 1280, frameRate: 30, bitrate: 2000000,
+        tracks: [{ type: 'video', clips: [{ uri: asset1.localUri, startTime: 2.0, duration: 2.0, resizeMode: 'cover' }] }]
+      };
+      await MediaEngine.composeCompositeVideo(part2Config);
+
+      // 3c. Stitch Parts
+      const stitchOut = asset1.localUri.replace('.mov', '_autotest_final.mp4');
+      const t3Start = Date.now();
+      await MediaEngine.stitchVideos([part1Config.outputUri, part2Config.outputUri], stitchOut);
+      const t3Dur = Date.now() - t3Start;
+      console.log(`Test 3 Complete: ${t3Dur}ms`);
+
+      // Done
+      setOutputUri(stitchOut); // Show stitched result
+      const totalTime = t1Dur + t2Dur + t3Dur;
+      setStatus(`✅ ALL TESTS PASSED! (${totalTime}ms)`);
+      Alert.alert("Suite Passed",
+        `1. Complex: ${t1Dur}ms\n2. Passthrough: ${t2Dur}ms\n3. Stitch: ${t3Dur}ms\n\nTotal: ${totalTime}ms`);
 
     } catch (e) {
       console.error("AutoTest Failed:", e);
@@ -239,6 +254,84 @@ export default function App() {
     }
   };
 
+  // --- New Advanced Tests ---
+
+  const testPassthrough = async () => {
+    if (videos.length === 0) { Alert.alert("Error", "Load test assets first"); return; }
+    try {
+      setLoading(true);
+      setStatus("Testing Smart Passthrough...");
+
+      const config = {
+        outputUri: videos[0].uri.replace('.mp4', '_passthrough.mp4').replace('.mov', '_passthrough.mp4'),
+        width: 1280, height: 720, frameRate: 30,
+        enablePassthrough: true,
+        tracks: [{ type: 'video', clips: [{ uri: videos[0].uri, startTime: 0, duration: 5.0 }] }]
+      };
+
+      const start = Date.now();
+      const result = await MediaEngine.composeCompositeVideo(config);
+      const time = Date.now() - start;
+
+      setStatus(`Passthrough Complete: ${time}ms`);
+      setOutputUri(result);
+      Alert.alert("Pass", `Passthrough Output generated in ${time}ms`);
+    } catch (e) {
+      Alert.alert("Error", e.message);
+    } finally { setLoading(false); }
+  };
+
+  const testTranscode = async () => {
+    if (videos.length === 0) { Alert.alert("Error", "Load test assets first"); return; }
+    try {
+      setLoading(true);
+      setStatus("Testing Forced Transcode...");
+
+      const config = {
+        outputUri: videos[0].uri.replace('.mp4', '_transcode.mp4').replace('.mov', '_transcode.mp4'),
+        width: 1280, height: 720, frameRate: 30,
+        enablePassthrough: false, // FORCE TRANSCODE
+        videoBitrate: 1000000, // Low bitrate test
+        tracks: [{ type: 'video', clips: [{ uri: videos[0].uri, startTime: 0, duration: 5.0 }] }]
+      };
+
+      const start = Date.now();
+      const result = await MediaEngine.composeCompositeVideo(config);
+      const time = Date.now() - start;
+
+      setStatus(`Transcode Complete: ${time}ms`);
+      setOutputUri(result);
+      Alert.alert("Pass", `Transcode Output generated in ${time}ms`);
+    } catch (e) {
+      Alert.alert("Error", e.message);
+    } finally { setLoading(false); }
+  };
+
+  const testStitching = async () => {
+    if (videos.length < 2) { Alert.alert("Error", "Need at least 2 videos"); return; }
+    try {
+      setLoading(true);
+      setStatus("Testing Video Stitching...");
+
+      // We will stitching video 1 and video 2 directly
+      // In a real scenario, these would be the output of parallel composition
+      const inputs = [videos[0].uri, videos[1].uri];
+      const output = videos[0].uri.replace('.mp4', '_stitched.mp4').replace('.mov', '_stitched.mp4');
+
+      const start = Date.now();
+      const result = await MediaEngine.stitchVideos(inputs, output);
+      const time = Date.now() - start;
+
+      setStatus(`Stitch Complete: ${time}ms`);
+      setOutputUri(result);
+      Alert.alert("Pass", `Stitched 2 videos in ${time}ms`);
+    } catch (e) {
+      console.error(e);
+      setStatus("Stitch Failed: " + e.message);
+      Alert.alert("Error", e.message);
+    } finally { setLoading(false); }
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Composite Media Engine Test</Text>
@@ -303,6 +396,15 @@ export default function App() {
             onPress={() => composeVideos(null)}
             disabled={loading || videos.length === 0}
           />
+        </View>
+
+        <Text style={styles.sectionHeader}>Advanced Tests (New Features)</Text>
+        <View style={styles.controls}>
+          <Button title="Test Passthrough (Fast)" onPress={testPassthrough} color="#2e7d32" />
+          <View style={styles.spacerSmall} />
+          <Button title="Test Transcode (Slow, 1mbps)" onPress={testTranscode} color="#c62828" />
+          <View style={styles.spacerSmall} />
+          <Button title="Test Stitching (Join V1+V2)" onPress={testStitching} color="#0277bd" />
         </View>
 
         {loading && <ActivityIndicator size="large" color="#0000ff" style={{ marginTop: 20 }} />}

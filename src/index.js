@@ -71,5 +71,13 @@ export default {
 
     isAvailable() {
         return !!MediaEngine;
+    },
+
+    /**
+     * Stitch multiple videos together
+     */
+    async stitchVideos(videoPaths, outputUri) {
+        if (!MediaEngine) throw new Error("MediaEngine unavailable");
+        return await MediaEngine.stitchVideos(videoPaths, outputUri);
     }
 };

@@ -438,7 +438,8 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         val colorParam = parts.getOrElse(1) { "#FFFFFF" }
         val sizeParam = parts.getOrElse(2) { "64" }.toFloatOrNull() ?: 64f
         
-        val bitmap = android.graphics.Bitmap.createBitmap(1024, 1024, android.graphics.Bitmap.Config.ARGB_8888)
+        // High resolution for text crispness (2048x2048)
+        val bitmap = android.graphics.Bitmap.createBitmap(2048, 2048, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
         val paint = android.graphics.Paint()
         
@@ -448,9 +449,13 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             paint.color = android.graphics.Color.WHITE
         }
         
-        // Scale font size for higher resolution (x2)
-        paint.textSize = sizeParam * 2f
+        // Scale font size: Base config is relative to 720p usually.
+        // We are drawing to 2048x2048.
+        // If config size is ~64 (points), we want it large.
+        paint.textSize = sizeParam * 4f 
         paint.isAntiAlias = true
+        paint.isFilterBitmap = true
+        paint.isDither = true
         paint.textAlign = android.graphics.Paint.Align.CENTER
         
         // Draw centered
@@ -469,9 +474,11 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         GLES20.glGenTextures(1, textureHandle, 0)
         if (textureHandle[0] != 0) {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureHandle[0])
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureHandle[0])
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
             android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+            GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
         }
         return textureHandle[0]
     }

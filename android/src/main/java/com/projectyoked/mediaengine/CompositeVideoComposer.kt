@@ -14,65 +14,60 @@ import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLExt
 import android.opengl.EGLSurface
-import android.opengl.GLES11Ext
-import android.opengl.GLES20
-import android.opengl.Matrix
-import android.os.Handler
-import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
 import java.io.File
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.FloatBuffer
 
 private const val EGL_RECORDABLE_ANDROID = 0x3142
 
 /**
  * CompositeVideoComposer
- * 
+ *
  * Uses OpenGL ES 2.0 to compose multiple video clips with transitions and overlays.
- * 
- * Pipeline:
- * [MediaExtractor] -> [MediaCodec (Decoder)] -> [SurfaceTexture] -> [OES Texture]
- * -> [OpenGL Framebuffer (Composition/Effects)] -> [EGLSurface (WindowSurface)]
- * -> [MediaCodec (Encoder)] -> [MediaMuxer]
+ *
+ * Pipeline: [MediaExtractor] -> [MediaCodec (Decoder)] -> [SurfaceTexture] -> [OES Texture] ->
+ * [OpenGL Framebuffer (Composition/Effects)] -> [EGLSurface (WindowSurface)] -> [MediaCodec
+ * (Encoder)] -> [MediaMuxer]
  */
-class CompositeVideoComposer(
-    private val context: Context,
-    private val config: CompositionConfig
-) {
+class CompositeVideoComposer(private val context: Context, private val config: CompositionConfig) {
     private val TAG = "CompositeVideoComposer"
-    
+
     // Config Data Classes
     data class CompositionConfig(
-        val outputUri: String,
-        val width: Int,
-        val height: Int,
-        val frameRate: Int,
-        val bitrate: Int,
-        val tracks: List<Track>
+            val outputUri: String,
+            val width: Int,
+            val height: Int,
+            val frameRate: Int,
+            val bitrate: Int,
+            val videoBitrate: Int = bitrate,
+            val audioBitrate: Int = 128000,
+            val enablePassthrough: Boolean = true,
+            val videoProfile: String = "baseline",
+            val tracks: List<Track>
     )
 
-    data class Track(
-        val type: TrackType,
-        val clips: List<Clip>
-    )
-    
-    enum class TrackType { VIDEO, AUDIO, TEXT }
+    data class Track(val type: TrackType, val clips: List<Clip>)
+
+    enum class TrackType {
+        VIDEO,
+        AUDIO,
+        TEXT
+    }
 
     data class Clip(
-        val uri: String,
-        val startTime: Double,
-        val duration: Double,
-        val filter: String? = null,
-        val transition: String? = null,
-        // Transformations
-        val resizeMode: String = "cover", // cover, contain, stretch
-        val x: Float = 0f, // Normalized center -1..1
-        val y: Float = 0f, // Normalized center -1..1
-        val scale: Float = 1f,
-        val rotation: Float = 0f // Degrees
+            val uri: String,
+            val startTime: Double,
+            val duration: Double,
+            val filter: String? = null,
+            val transition: String? = null,
+            // Transformations
+            val resizeMode: String = "cover", // cover, contain, stretch
+            val x: Float = 0f, // Normalized center -1..1
+            val y: Float = 0f, // Normalized center -1..1
+            val scale: Float = 1f,
+            val rotation: Float = 0f, // Degrees
+            val volume: Float = 1.0f
     )
 
     // GL Components
@@ -80,7 +75,7 @@ class CompositeVideoComposer(
     private var eglContext: EGLContext? = null
     private var eglSurface: EGLSurface? = null
     // textureRenderer moved to RenderEngine
-    
+
     // Media Components
     private var encoder: MediaCodec? = null
     private var muxer: MediaMuxer? = null
@@ -88,58 +83,66 @@ class CompositeVideoComposer(
     private var muxerStarted = false
     private var videoTrackIndex = -1
     private var audioTrackIndex = -1
-    
+
     // Audio State
     private var audioExtractor: MediaExtractor? = null
     private var audioMixedFilePath: String? = null
     private var audioTrackSourceIndex = -1
-    
+
     // Threading removed
 
-    // ... 
+    // ...
 
     // Main Entry Point
     fun start() {
+        // We let exceptions propagate to the Module for Promise rejection
+
+        // --- Smart Passthrough Check ---
+        if (config.enablePassthrough && canPassthrough()) {
+            Log.d(TAG, "Smart Passthrough Triggered: Skipping transcoding")
+            runPassthrough()
+            return
+        }
+
+        prepare()
+
+        val renderEngine = RenderEngine(context, config)
+        renderEngine.prepare()
+
         try {
-            prepare()
-            
-            val renderEngine = RenderEngine(context, config)
-            renderEngine.prepare()
-            
             // Loop through timeline
             // We drive by output frames
-            val durationSec = config.tracks.flatMap { it.clips }.maxOfOrNull { it.startTime + it.duration } ?: 0.0
+            val durationSec =
+                    config.tracks.flatMap { it.clips }.maxOfOrNull { it.startTime + it.duration }
+                            ?: 0.0
             val durationUs = (durationSec * 1_000_000).toLong()
             val frameIntervalUs = (1_000_000 / config.frameRate).toLong()
-            
+
             var currentTimeUs = 0L
-            
+
             while (currentTimeUs <= durationUs) {
                 // 1. Render To Texture/FBO
-                // We need to render to the EGL Surface, but RenderEngine draws to Current Framebuffer.
-                // Since we are ON the encoder thread (or main thread here), EGL surface is bound.
-                // Wait, RenderEngine needs to draw to the ENCODER SURFACE's input.
-                // EGLSurface attached to Encoder Surface is current.
-                
+
                 // Render content for this time
                 renderEngine.render(currentTimeUs)
-                
+
                 // Set Presentation Time
-                EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, currentTimeUs * 1000) // nanoseconds
+                EGLExt.eglPresentationTimeANDROID(
+                        eglDisplay,
+                        eglSurface,
+                        currentTimeUs * 1000
+                ) // nanoseconds
                 EGL14.eglSwapBuffers(eglDisplay, eglSurface)
-                
+
                 // 2. Drain Encoder
                 drainEncoder(false)
-                
+
                 currentTimeUs += frameIntervalUs
             }
-            
+
             drainEncoder(true) // EOS
-            renderEngine.release()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Composition Failed", e)
         } finally {
+            renderEngine.release()
             release()
         }
     }
@@ -148,13 +151,13 @@ class CompositeVideoComposer(
         // 1. Setup MediaMuxer
         val outputPath = Uri.parse(config.outputUri).path!!
         muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-        
+
         // 1.5 Prepare Audio (Pre-mix)
         Log.d(TAG, "Preparing Audio...")
         try {
             val mixer = AudioMixer(context, config)
             audioMixedFilePath = mixer.mix()
-            
+
             if (audioMixedFilePath != null) {
                 audioExtractor = MediaExtractor()
                 audioExtractor!!.setDataSource(audioMixedFilePath!!)
@@ -173,146 +176,232 @@ class CompositeVideoComposer(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Audio mix failed", e)
+            throw e // Rethrow audio mixing errors too!
         }
-        
-        // 2. Setup Video Encoder
-       // ... (rest is same)
-       val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, config.width, config.height)
-       format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-       Log.d(TAG, "Configuring Encoder: ${config.width}x${config.height} @ ${config.bitrate}bps")
-       format.setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
-       format.setInteger(MediaFormat.KEY_FRAME_RATE, config.frameRate)
-       format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
 
-       encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-       encoder!!.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-       encoderSurface = encoder!!.createInputSurface()
-       encoder!!.start()
-       setupEGL()
+        // 2. Setup Video Encoder
+        // ... (rest is same)
+        val format =
+                MediaFormat.createVideoFormat(
+                        MediaFormat.MIMETYPE_VIDEO_AVC,
+                        config.width,
+                        config.height
+                )
+        format.setInteger(
+                MediaFormat.KEY_COLOR_FORMAT,
+                MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+        )
+        Log.d(TAG, "Configuring Encoder: ${config.width}x${config.height} @ ${config.bitrate}bps")
+        format.setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, config.frameRate)
+        format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+
+        // Robust Profile Support
+        if (config.videoProfile != "baseline") {
+            // Map string to constant
+            val profile =
+                    when (config.videoProfile) {
+                        "high" -> MediaCodecInfo.CodecProfileLevel.AVCProfileHigh
+                        "main" -> MediaCodecInfo.CodecProfileLevel.AVCProfileMain
+                        else -> MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline
+                    }
+            // For now, we trust the device or fallback if configure fails (handled below)
+            // Note: Setting Profile often requires setting Level too, which is complex to guess.
+            // A safer approach is to only set it if explicitly needed, or handle exception.
+            if (profile != MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline) {
+                format.setInteger(MediaFormat.KEY_PROFILE, profile)
+                // Level 4.1 is a safe bet for High/Main 1080p, but strictly we should check
+                // capabilities.
+                // Omitting Level might be rejected by some codecs.
+                // format.setInteger(MediaFormat.KEY_LEVEL,
+                // MediaCodecInfo.CodecProfileLevel.AVCLevel41)
+            }
+        }
+
+        try {
+            encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            encoder!!.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        } catch (e: Exception) {
+            Log.w(
+                    TAG,
+                    "Encoder configuration failed with profile ${config.videoProfile}, retrying with Baseline",
+                    e
+            )
+            format.setInteger(
+                    MediaFormat.KEY_PROFILE,
+                    MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline
+            )
+            // Remove level if it was set
+            // Retry
+            try {
+                encoder?.reset()
+                encoder?.release()
+                encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                encoder!!.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Encoder fallback failed", e2)
+                throw e2
+            }
+        }
+
+        encoderSurface = encoder!!.createInputSurface()
+        encoder!!.start()
+        setupEGL()
     }
 
     private fun drainEncoder(endOfStream: Boolean) {
         if (endOfStream) {
             encoder?.signalEndOfInputStream()
         }
-        
+
         val bufferInfo = MediaCodec.BufferInfo()
         while (true) {
             val encoderStatus = encoder!!.dequeueOutputBuffer(bufferInfo, 0) // No wait
             if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
-                if (!endOfStream) break 
+                if (!endOfStream) break
             } else if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                if (muxerStarted) throw RuntimeException("format changed twice")
-                videoTrackIndex = muxer!!.addTrack(encoder!!.outputFormat)
-                
-                // Add Audio Track if available
-                if (audioExtractor != null && audioTrackSourceIndex != -1) {
-                    val format = audioExtractor!!.getTrackFormat(audioTrackSourceIndex)
-                    audioTrackIndex = muxer!!.addTrack(format)
-                    Log.d(TAG, "Added Audio Track to Muxer: Index $audioTrackIndex")
+                if (muxerStarted) {
+                    // Robustness: Don't crash, just log and ignore if possible, though this is rare
+                    // spec violation
+                    Log.w(TAG, "Format changed twice! Ignoring...")
                 } else {
-                    Log.w(TAG, "No Audio Track to add (Extractor=$audioExtractor, Index=$audioTrackSourceIndex)")
+                    videoTrackIndex = muxer!!.addTrack(encoder!!.outputFormat)
+
+                    // Add Audio Track if available
+                    if (audioExtractor != null && audioTrackSourceIndex != -1) {
+                        val format = audioExtractor!!.getTrackFormat(audioTrackSourceIndex)
+                        audioTrackIndex = muxer!!.addTrack(format)
+                        Log.d(TAG, "Added Audio Track to Muxer: Index $audioTrackIndex")
+                    } else {
+                        Log.w(
+                                TAG,
+                                "No Audio Track to add (Extractor=$audioExtractor, Index=$audioTrackSourceIndex)"
+                        )
+                    }
+
+                    muxer!!.start()
+                    muxerStarted = true
                 }
-                
-                muxer!!.start()
-                muxerStarted = true
             } else if (encoderStatus >= 0) {
                 val encodedData = encoder!!.getOutputBuffer(encoderStatus)!!
                 if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
                     bufferInfo.size = 0
                 }
-                
+
                 if (bufferInfo.size != 0) {
-                    if (!muxerStarted) throw RuntimeException("muxer hasn't started")
-                    encodedData.position(bufferInfo.offset)
-                    encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                    
-                    // Write Audio Interleaved (Up to current video time)
-                    writeAudioUpTo(bufferInfo.presentationTimeUs)
-                    
-                    muxer!!.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
+                    if (!muxerStarted) {
+                        // Wait for format change... potentially loop/wait here?
+                        Log.e(TAG, "Muxer not started but data received. Dropping frame.")
+                    } else {
+                        encodedData.position(bufferInfo.offset)
+                        encodedData.limit(bufferInfo.offset + bufferInfo.size)
+
+                        // Write Audio Interleaved (Up to current video time)
+                        writeAudioUpTo(bufferInfo.presentationTimeUs)
+
+                        muxer!!.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
+                    }
                 }
-                
+
                 encoder!!.releaseOutputBuffer(encoderStatus, false)
                 if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) break
             }
         }
-        
+
         if (endOfStream && muxerStarted) {
-             // Write remaining audio
-             writeAudioUpTo(Long.MAX_VALUE)
+            // Write remaining audio
+            writeAudioUpTo(Long.MAX_VALUE)
         }
     }
-    
+
     private fun writeAudioUpTo(timeUs: Long) {
         if (audioTrackIndex == -1 || audioExtractor == null) return
-        
-        val buffer = ByteBuffer.allocate(64 * 1024) 
+
+        val buffer = ByteBuffer.allocate(64 * 1024)
         val bufferInfo = MediaCodec.BufferInfo()
-        
+
         try {
             while (true) {
-                 val sampleTime = audioExtractor!!.sampleTime
-                 
-                 // Check for EOS or Future
-                 if (sampleTime == -1L) {
-                      // Log.d(TAG, "Audio EOS")
-                      break 
-                 }
-                 if (sampleTime > timeUs) {
-                      break 
-                 }
-                 
-                 val size = audioExtractor!!.readSampleData(buffer, 0)
-                 if (size >= 0) {
-                     bufferInfo.set(0, size, sampleTime, audioExtractor!!.sampleFlags)
-                     muxer!!.writeSampleData(audioTrackIndex, buffer, bufferInfo)
-                     if (!audioExtractor!!.advance()) {
-                         // End of stream reached during advance
-                         break
-                     }
-                 } else {
-                     break
-                 }
+                val sampleTime = audioExtractor!!.sampleTime
+
+                // Check for EOS or Future
+                if (sampleTime == -1L) {
+                    // Log.d(TAG, "Audio EOS")
+                    break
+                }
+                if (sampleTime > timeUs) {
+                    break
+                }
+
+                val size = audioExtractor!!.readSampleData(buffer, 0)
+                if (size >= 0) {
+                    bufferInfo.set(0, size, sampleTime, audioExtractor!!.sampleFlags)
+                    muxer!!.writeSampleData(audioTrackIndex, buffer, bufferInfo)
+                    if (!audioExtractor!!.advance()) {
+                        // End of stream reached during advance
+                        break
+                    }
+                } else {
+                    break
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio samples", e)
         }
     }
-    
+
     private fun setupEGL() {
         eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-        if (eglDisplay == EGL14.EGL_NO_DISPLAY) throw RuntimeException("unable to get EGL14 display")
-        
+        if (eglDisplay == EGL14.EGL_NO_DISPLAY)
+                throw RuntimeException("unable to get EGL14 display")
+
         val version = IntArray(2)
         if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) {
             throw RuntimeException("unable to initialize EGL14")
         }
-        
-        val attribList = intArrayOf(
-            EGL14.EGL_RED_SIZE, 8,
-            EGL14.EGL_GREEN_SIZE, 8,
-            EGL14.EGL_BLUE_SIZE, 8,
-            EGL14.EGL_ALPHA_SIZE, 8,
-            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-            EGL_RECORDABLE_ANDROID, 1, // Important for MediaCodec
-            EGL14.EGL_NONE
-        )
-        
+
+        val attribList =
+                intArrayOf(
+                        EGL14.EGL_RED_SIZE,
+                        8,
+                        EGL14.EGL_GREEN_SIZE,
+                        8,
+                        EGL14.EGL_BLUE_SIZE,
+                        8,
+                        EGL14.EGL_ALPHA_SIZE,
+                        8,
+                        EGL14.EGL_RENDERABLE_TYPE,
+                        EGL14.EGL_OPENGL_ES2_BIT,
+                        EGL_RECORDABLE_ANDROID,
+                        1, // Important for MediaCodec
+                        EGL14.EGL_NONE
+                )
+
         val configs = arrayOfNulls<EGLConfig>(1)
         val numConfigs = IntArray(1)
         EGL14.eglChooseConfig(eglDisplay, attribList, 0, configs, 0, configs.size, numConfigs, 0)
-        
-        val contextAttribs = intArrayOf(
-            EGL14.EGL_CONTEXT_CLIENT_VERSION, 2,
-            EGL14.EGL_NONE
-        )
-        
-        eglContext = EGL14.eglCreateContext(eglDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
-        
+
+        val contextAttribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+
+        eglContext =
+                EGL14.eglCreateContext(
+                        eglDisplay,
+                        configs[0],
+                        EGL14.EGL_NO_CONTEXT,
+                        contextAttribs,
+                        0
+                )
+
         val surfaceAttribs = intArrayOf(EGL14.EGL_NONE)
-        eglSurface = EGL14.eglCreateWindowSurface(eglDisplay, configs[0], encoderSurface, surfaceAttribs, 0)
-        
+        eglSurface =
+                EGL14.eglCreateWindowSurface(
+                        eglDisplay,
+                        configs[0],
+                        encoderSurface,
+                        surfaceAttribs,
+                        0
+                )
+
         EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
     }
 
@@ -320,7 +409,12 @@ class CompositeVideoComposer(
 
     private fun release() {
         if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
-            EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+            EGL14.eglMakeCurrent(
+                    eglDisplay,
+                    EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_CONTEXT
+            )
             EGL14.eglDestroySurface(eglDisplay, eglSurface)
             EGL14.eglDestroyContext(eglDisplay, eglContext)
             EGL14.eglReleaseThread()
@@ -331,13 +425,13 @@ class CompositeVideoComposer(
         if (muxerStarted) muxer?.stop()
         muxer?.release()
         encoderSurface?.release()
-        
+
         // Cleanup Audio
         if (audioExtractor != null) {
             audioExtractor!!.release()
             audioExtractor = null
         }
-        
+
         if (audioMixedFilePath != null) {
             try {
                 val file = File(audioMixedFilePath!!)
@@ -348,6 +442,286 @@ class CompositeVideoComposer(
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to delete temp audio file", e)
             }
+        }
+    }
+
+    // --- Passthrough Logic ---
+
+    private fun canPassthrough(): Boolean {
+        // 1. Check if we have exactly one video track with one clip
+        val videoTracks = config.tracks.filter { it.type == TrackType.VIDEO }
+        if (videoTracks.size != 1) return false
+
+        val videoTrack = videoTracks[0]
+        if (videoTrack.clips.size != 1) return false
+
+        val clip = videoTrack.clips[0]
+
+        // 2. Check for overlays or effects
+        if (config.tracks.any { it.type == TrackType.TEXT }) return false // Has text/emojis
+
+        // 3. Check for modifiers on the clip
+        if (clip.filter != null) return false
+        if (clip.rotation != 0f)
+                return false // Rotation usually requires re-encoding unless we edit metadata
+        // (mp4parser)
+        // STRICTER CHECK: Resize must be cover mostly, and scale 1f.
+        if (clip.scale != 1f) return false
+        if (clip.resizeMode != "cover") return false // If not standard, GL might be needed.
+
+        // 4. Trimming Check
+        // If the user requests a start time mismatch or a specific short duration, we must NOT
+        // passthrough
+        // (unless we implement GOP-aware splitting, which is complex).
+        // Safest: Disable passthrough if startTime > 0.
+        if (clip.startTime > 0.1) return false // Allow small epsilon?
+
+        // Check Source Duration vs Clip Duration
+        val sourceDurationUs = getSourceDurationUs(clip.uri)
+        if (sourceDurationUs > 0) {
+            val clipDurationUs = (clip.duration * 1_000_000).toLong()
+            // If clip duration is significantly shorter than source (e.g. > 0.5s difference), we
+            // are trimming.
+            // Transcoding is required to trim properly.
+            if (sourceDurationUs - clipDurationUs > 500_000) {
+                Log.d(
+                        TAG,
+                        "Passthrough disabled: Clip is trimmed (Source: $sourceDurationUs, Clip: $clipDurationUs)"
+                )
+                return false
+            }
+        }
+
+        // 4. Strict Mode: Check if we are adding audio (music) that wasn't there?
+        // If we simply want to MUX new audio into existing video without re-encoding video, we CAN
+        // do that.
+        // But for MVP, let's say "Passthrough" means "Copy Video Stream" + "Copy/Mix Audio".
+        // If we are mixing audio, we can still copy the VIDEO stream.
+
+        // Let's verify codecs match?
+        // For now, let's assume if it's a single video clip with no effects, we can try to copy the
+        // video stream.
+
+        return true
+    }
+
+    private fun getSourceDurationUs(uriString: String): Long {
+        return try {
+            val extractor = MediaExtractor()
+            val uri = if (uriString.startsWith("file://")) uriString.substring(7) else uriString
+            extractor.setDataSource(uri)
+
+            var duration = -1L
+            for (i in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME)
+                if (mime?.startsWith("video/") == true) {
+                    if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                        duration = format.getLong(MediaFormat.KEY_DURATION)
+                    }
+                    break
+                }
+            }
+            extractor.release()
+            duration
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not determine source duration for passthrough check", e)
+            -1L
+        }
+    }
+
+    private fun runPassthrough() {
+        // Logic: Extract Video Track from Source -> Write to Muxer
+        // Extract Audio Track -> Write to Muxer (Or Mix if needed)
+
+        // Simple Case: Just a single video file, no extra audio mixing?
+        // If we have extra audio tracks (music), we need to RE-MUX. (New Muxer, copy Video Stream,
+        // Encode/Copy Audio Stream)
+
+        // Implementation:
+        // 1. Setup MediaMuxer
+        val outputPath = Uri.parse(config.outputUri).path!!
+        val passthroughMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+
+        var videoExtractor: MediaExtractor? = null
+        var audioMixerExtractor: MediaExtractor? = null
+
+        try {
+            val videoClip = config.tracks.first { it.type == TrackType.VIDEO }.clips.first()
+            val videoUri =
+                    if (videoClip.uri.startsWith("file://")) videoClip.uri.substring(7)
+                    else videoClip.uri
+
+            videoExtractor = MediaExtractor()
+            videoExtractor.setDataSource(videoUri)
+
+            var sourceVideoIndex = -1
+            var muxerVideoIndex = -1
+
+            // Find Video Track
+            for (i in 0 until videoExtractor.trackCount) {
+                val format = videoExtractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME)
+                if (mime?.startsWith("video/") == true) {
+                    sourceVideoIndex = i
+                    videoExtractor.selectTrack(i)
+                    muxerVideoIndex = passthroughMuxer.addTrack(format)
+                    break
+                }
+            }
+
+            // Handle Audio (Complex if mixing)
+            // If we have music overlay, we need to mix audio and then add it.
+            // If just original audio, we can copy it.
+
+            var muxerAudioIndex = -1
+            val hasExtraAudio = config.tracks.any { it.type == TrackType.AUDIO }
+
+            if (hasExtraAudio) {
+                // We need to run AudioMixer to get the mixed file, then add that track
+                Log.d(TAG, "Passthrough: Video Passthrough + Audio Mixing")
+                val mixer = AudioMixer(context, config)
+                val mixedAudioPath = mixer.mix()
+
+                if (mixedAudioPath != null) {
+                    audioMixerExtractor = MediaExtractor()
+                    audioMixerExtractor!!.setDataSource(mixedAudioPath)
+                    for (i in 0 until audioMixerExtractor!!.trackCount) {
+                        val f = audioMixerExtractor!!.getTrackFormat(i)
+                        if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                            audioMixerExtractor!!.selectTrack(i)
+                            muxerAudioIndex = passthroughMuxer.addTrack(f)
+                            break
+                        }
+                    }
+                }
+            } else {
+                // Just use original audio if exists
+                for (i in 0 until videoExtractor.trackCount) {
+                    val format = videoExtractor.getTrackFormat(i)
+                    val mime = format.getString(MediaFormat.KEY_MIME)
+                    if (mime?.startsWith("audio/") == true) {
+                        videoExtractor.selectTrack(i)
+                        muxerAudioIndex = passthroughMuxer.addTrack(format)
+                        // Note: If source has multiple audio tracks, we just take the first one
+                        // found for now
+                        break
+                    }
+                }
+            }
+
+            passthroughMuxer.start()
+
+            // Copy Video
+            if (sourceVideoIndex >= 0) {
+                val buffer = ByteBuffer.allocate(1024 * 1024) // 1MB buffer
+                val bufferInfo = MediaCodec.BufferInfo()
+
+                while (true) {
+                    val sampleTime = videoExtractor.sampleTime
+                    if (sampleTime == -1L) break
+
+                    if (videoExtractor.sampleTrackIndex == sourceVideoIndex) {
+                        val size = videoExtractor.readSampleData(buffer, 0)
+                        if (size >= 0) {
+                            bufferInfo.set(0, size, sampleTime, videoExtractor.sampleFlags)
+                            passthroughMuxer.writeSampleData(muxerVideoIndex, buffer, bufferInfo)
+                        }
+                    }
+                    if (!videoExtractor.advance()) break
+                }
+            }
+
+            // Copy Audio
+            if (muxerAudioIndex >= 0) {
+                // Determine which extractor to use
+                val targetExtractor = if (hasExtraAudio) audioMixerExtractor!! else videoExtractor
+                // Note: If using videoExtractor, we might need to seek back or handle interleaved
+                // logic better?
+                // MediaExtractor tracks are independent.
+
+                // If using same extractor, we need to be careful.
+                // Actually MediaExtractor.advance() advances ALL selected tracks?
+                // No, advance() works on the stream.
+                // For safety, let's use a separate extractor for audio if it's from the same file,
+                // or just re-loop?
+                // Re-looping is safe for file sources.
+
+                if (!hasExtraAudio) {
+                    // Re-seek video extractor for audio pass
+                    videoExtractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                }
+
+                val buffer = ByteBuffer.allocate(512 * 1024)
+                val bufferInfo = MediaCodec.BufferInfo()
+
+                // Find source audio index again
+                var sourceAudioIndex = -1
+                if (hasExtraAudio) {
+                    // audioMixerExtractor is already set up and has only 1 track usually
+                    sourceAudioIndex = audioMixerExtractor!!.sampleTrackIndex
+                    if (sourceAudioIndex == -1) {
+                        // Find it
+                        for (i in 0 until audioMixerExtractor!!.trackCount) {
+                            if (audioMixerExtractor!!
+                                            .getTrackFormat(i)
+                                            .getString(MediaFormat.KEY_MIME)
+                                            ?.startsWith("audio/") == true
+                            ) {
+                                sourceAudioIndex = i
+                                break
+                            }
+                        }
+                    }
+                } else {
+                    // Find in videoExtractor
+                    for (i in 0 until videoExtractor.trackCount) {
+                        if (videoExtractor
+                                        .getTrackFormat(i)
+                                        .getString(MediaFormat.KEY_MIME)
+                                        ?.startsWith("audio/") == true
+                        ) {
+                            sourceAudioIndex = i
+                            break
+                        }
+                    }
+                }
+
+                val activeExtractor = if (hasExtraAudio) audioMixerExtractor!! else videoExtractor
+
+                while (true) {
+                    val sampleTime = activeExtractor.sampleTime
+                    if (sampleTime == -1L) break
+
+                    // We need to check if the current sample belongs to the audio track we are
+                    // interested in
+                    if (activeExtractor.sampleTrackIndex == sourceAudioIndex ||
+                                    (hasExtraAudio && activeExtractor.sampleTrackIndex >= 0)
+                    ) {
+                        val size = activeExtractor.readSampleData(buffer, 0)
+                        if (size >= 0) {
+                            bufferInfo.set(0, size, sampleTime, activeExtractor.sampleFlags)
+                            passthroughMuxer.writeSampleData(muxerAudioIndex, buffer, bufferInfo)
+                        }
+                    }
+                    if (!activeExtractor.advance()) break
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Passthrough failed", e)
+            throw e
+        } finally {
+            try {
+                videoExtractor?.release()
+                audioMixerExtractor?.release()
+                passthroughMuxer.stop()
+                passthroughMuxer.release()
+
+                // Cleanup mixer temp file
+                if (audioMixedFilePath != null) {
+                    File(audioMixedFilePath!!).delete()
+                }
+            } catch (e: Exception) {}
         }
     }
 

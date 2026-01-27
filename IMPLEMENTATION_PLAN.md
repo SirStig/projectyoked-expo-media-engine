@@ -40,31 +40,29 @@ Input: `CompositionConfig` (JSON)
 - [x] **MVP Matrix Logic**: Calculate aspect-ratio preserving scaling matrices.
 - [x] **Transformations**: Support `x`, `y`, `scale`, `rotation`, and `resizeMode`.
 - [x] **Optimization**: Burst-mode feed-and-drain loop.
-- [ ] **Verification**: Confirm "black box" and "squished" issues are resolved.
-- [ ] **Static Images**: Implement loading images into GL Textures and rendering them like 0-fps video frames.
+- [x] **Verification**: Confirm "black box" and "squished" issues are resolved.
+- [x] **Static Images**: Implement loading images into GL Textures and rendering them like 0-fps video frames.
 
 ### Phase 2: Advanced Composition & Editing
 **Goal**: Complex timeline editing features.
 - [ ] **Trimming**: 
     -   Implement `clipStart` and `clipEnd` properties.
     -   Modify `extractor.seekTo` logic to account for `clipStart` offset.
-- [ ] **Multi-Track / PIP**:
-    -   Allow rendering multiple video clips simultaneously.
-    -   *Challenge*: Managing multiple hardware decoders (Android limit usually ~4-8).
-    -   *Fallback*: Software decoding or sequentially rendering to FBOs if hardware limit hit.
-- [ ] **Z-Ordering**: 
-    -   Render tracks from index 0 -> N (Painter's algorithm).
-    -   Support "Bring to Front" / "Send to Back".
+- [/] **Multi-Track / PIP**:
+    -   [x] Allow rendering multiple clips simultaneously (Overlays working).
+    -   [ ] Manage hardware decoders limit.
+- [/] **Z-Ordering**: 
+    -   [x] Render tracks from index 0 -> N (Painter's algorithm).
 
 ### Phase 3: The Audio Engine
 **Goal**: Pro-level audio mixing.
-- [ ] **Audio Extraction**:
-    -   Use `MediaExtractor` to pull AAC/MP3 samples.
-    -   Decode to PCM using `MediaCodec`.
-- [ ] **Mixing**:
-    -   Sum PCM samples from multiple tracks.
-    -   Apply volume envelopes (fades, keyframes).
-    -   Handle sample rate mismatches (Resampling to 44.1kHz or 48kHz).
+- [/] **Audio Extraction**:
+    -   [x] Use `MediaExtractor` to pull AAC/MP3 samples.
+    -   [x] Decode to PCM using `MediaCodec`.
+- [/] **Mixing**:
+    -   [x] Sum PCM samples from multiple tracks.
+    -   [ ] Apply volume envelopes (fades, keyframes).
+    -   [ ] Handle sample rate mismatches (Resampling logic missing).
 - [ ] **Waveform Data**:
     -   Generate JSON array of amplitude peaks for UI visualization.
 

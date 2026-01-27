@@ -28,6 +28,10 @@ export interface ExportCompositionConfig {
     // Quality Control
     quality?: 'low' | 'medium' | 'high';
     bitrate?: number;
+    videoBitrate?: number;
+    audioBitrate?: number;
+    enablePassthrough?: boolean;
+    videoProfile?: 'baseline' | 'main' | 'high';
 
     duration?: number;
 
@@ -74,6 +78,10 @@ export interface CompositionConfig {
     frameRate: number;
     frameRate: number;
     bitrate?: number;
+    videoBitrate?: number;
+    audioBitrate?: number;
+    enablePassthrough?: boolean;
+    videoProfile?: 'baseline' | 'main' | 'high';
     quality?: 'low' | 'medium' | 'high';
     tracks: CompositeTrack[];
 }
@@ -114,6 +122,14 @@ export interface MediaEngineInterface {
      * @returns true if module is available, false otherwise
      */
     isAvailable(): boolean;
+
+    /**
+     * Stitch multiple video files together
+     * @param videoPaths Array of paths to input video files
+     * @param outputUri Path for the output video file
+     * @returns Promise resolving to the output video file path
+     */
+    stitchVideos(videoPaths: string[], outputUri: string): Promise<string>;
 }
 
 declare const MediaEngine: MediaEngineInterface;

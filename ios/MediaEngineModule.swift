@@ -170,6 +170,9 @@ public class MediaEngineModule: Module {
                  "width": 1280, // Legacy default
                  "height": 720,
                  "frameRate": 30,
+                 "videoBitrate": config["videoBitrate"] ?? config["bitrate"],
+                 "audioBitrate": config["audioBitrate"],
+                 "enablePassthrough": config["enablePassthrough"] ?? true,
                  "tracks": tracks
              ]
              
@@ -184,6 +187,11 @@ public class MediaEngineModule: Module {
         AsyncFunction("composeCompositeVideo") { (config: [String: Any]) -> String in
             return try await composeCompositeVideoImpl(config)
         }
+        
+        // MARK: - Utilities
+        AsyncFunction("stitchVideos") { (videoPaths: [String], outputUri: String) -> String in
+            return try await VideoStitcher.stitch(videoPaths: videoPaths, outputUri: outputUri)
+        }
     }
 
     private func composeCompositeVideoImpl(_ config: [String: Any]) async throws -> String {
@@ -195,8 +203,36 @@ public class MediaEngineModule: Module {
             let height = config["height"] as? Double ?? 720
             let frameRate = config["frameRate"] as? Int ?? 30
             
+            let enablePassthrough = config["enablePassthrough"] as? Bool ?? true
+            
             let tracks = config["tracks"] as? [[String: Any]] ?? []
             
+            // --- Smart Passthrough Check ---
+            // Check if we can use Passthrough Preset (No re-encoding)
+            var usePassthrough = false
+            if enablePassthrough {
+                // Criteria: 1 Video Track, 1 Clip, No Text/Overlay, No complex transforms
+                let videoTracks = tracks.filter { ($0["type"] as? String) == "video" }
+                let audioTracks = tracks.filter { ($0["type"] as? String) == "audio" }
+                let textTracks = tracks.filter { ($0["type"] as? String) == "text" }
+                
+                if videoTracks.count == 1 && textTracks.isEmpty && audioTracks.isEmpty {
+                     let vTrack = videoTracks[0]
+                     let clips = vTrack["clips"] as? [[String: Any]] ?? []
+                     if clips.count == 1 {
+                         let clip = clips[0]
+                         // Check transforms
+                         let scale = clip["scale"] as? Double ?? 1.0
+                         let rotation = clip["rotation"] as? Double ?? 0.0
+                         let filter = clip["filter"] as? String
+                         
+                         if scale == 1.0 && rotation == 0.0 && filter == nil {
+                             usePassthrough = true
+                         }
+                     }
+                }
+            }
+
             let composition = AVMutableComposition()
             let videoComposition = AVMutableVideoComposition()
             videoComposition.renderSize = CGSize(width: width, height: height)
@@ -366,13 +402,24 @@ public class MediaEngineModule: Module {
                 videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parentLayer)
             }
             
-            guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+            var presetName = AVAssetExportPresetHighestQuality
+            // Map videoProfile/Bitrate to Presets if we can't do arbitrary? 
+            // AVFoundation presets are usually "High", "Medium", "Low", "1280x720"...
+            
+            if usePassthrough {
+                 presetName = AVAssetExportPresetPassthrough
+            }
+            
+            guard let exportSession = AVAssetExportSession(asset: composition, presetName: presetName) else {
                  throw NSError(domain: "MediaEngine", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to create video export session"])
             }
             
             exportSession.outputURL = outputURL
             exportSession.outputFileType = .mp4
-            exportSession.videoComposition = videoComposition
+            
+            if !usePassthrough {
+                exportSession.videoComposition = videoComposition
+            }
             
             await exportSession.export()
              
