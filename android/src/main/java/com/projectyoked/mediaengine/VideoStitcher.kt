@@ -25,7 +25,7 @@ object VideoStitcher {
 
         val movies = ArrayList<Movie>()
         videoPaths.forEach { path ->
-            val cleanPath = if (path.startsWith("file://")) path.substring(7) else path
+            val cleanPath = android.net.Uri.parse(path).path ?: path
             movies.add(MovieCreator.build(cleanPath))
         }
 

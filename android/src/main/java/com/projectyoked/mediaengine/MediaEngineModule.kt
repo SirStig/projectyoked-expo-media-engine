@@ -26,12 +26,12 @@ class CompositionTrackRecord : Record {
 
 class CompositionConfigRecord : Record {
         @Field val outputUri: String = ""
-        @Field val width: Int = 1280
-        @Field val height: Int = 720
-        @Field val frameRate: Int = 30
-        @Field val bitrate: Int = 2000000 // Legacy support, maps to videoBitrate
+        @Field val width: Int? = null
+        @Field val height: Int? = null
+        @Field val frameRate: Int? = null
+        @Field val bitrate: Int? = null // Legacy support
         @Field val videoBitrate: Int? = null
-        @Field val audioBitrate: Int = 128000
+        @Field val audioBitrate: Int? = null
         @Field val enablePassthrough: Boolean = true
         @Field val videoProfile: String = "baseline" // baseline, main, high
         @Field val tracks: List<CompositionTrackRecord> = emptyList()
@@ -305,16 +305,78 @@ class MediaEngineModule : Module() {
                                                 CompositeVideoComposer.Track(type, clips)
                                         }
 
+                                // Dynamic Defaults Logic
+                                var width = config.width
+                                var height = config.height
+                                var frameRate = config.frameRate
+                                var videoBitrate = config.videoBitrate ?: config.bitrate
+                                var audioBitrate = config.audioBitrate
+
+                                // If any crucial config is missing, try to read from source
+                                if (width == null ||
+                                                height == null ||
+                                                frameRate == null ||
+                                                videoBitrate == null
+                                ) {
+                                        val firstVideoTrack =
+                                                config.tracks.firstOrNull { it.type == "video" }
+                                        val firstClip = firstVideoTrack?.clips?.firstOrNull()
+
+                                        if (firstClip != null) {
+                                                val path =
+                                                        if (firstClip.uri.startsWith("file://"))
+                                                                firstClip.uri.substring(7)
+                                                        else firstClip.uri
+                                                val metadata = extractMetadata(path)
+
+                                                if (metadata != null) {
+                                                        if (width == null) width = metadata.width
+                                                        if (height == null) height = metadata.height
+
+                                                        // Metadata rotation is already handled in
+                                                        // dimensions by extractMetadata,
+                                                        // but if we want to respect original file
+                                                        // rotation tag vs composed buffer...
+                                                        // Actually, extractMetadata returns
+                                                        // query-able w/h.
+                                                        // If rotation is 90/270, we should swap.
+                                                        // Let's refine extractMetadata to return
+                                                        // raw w/h and rotation.
+
+                                                        if ((metadata.rotation == 90 ||
+                                                                        metadata.rotation == 270) &&
+                                                                        width != null &&
+                                                                        height != null
+                                                        ) {
+                                                                val w = width!!
+                                                                width = height
+                                                                height = w
+                                                        }
+
+                                                        if (frameRate == null)
+                                                                frameRate = metadata.frameRate
+                                                        if (videoBitrate == null)
+                                                                videoBitrate = metadata.bitrate
+                                                }
+                                        }
+                                }
+
+                                // Final Defaults if still null
+                                val finalWidth = width ?: 1280
+                                val finalHeight = height ?: 720
+                                val finalFrameRate = frameRate ?: 30
+                                val finalVideoBitrate = videoBitrate ?: 2000000
+                                val finalAudioBitrate = audioBitrate ?: 128000
+
                                 val compositionConfig =
                                         CompositeVideoComposer.CompositionConfig(
                                                 outputUri = config.outputUri,
-                                                width = config.width,
-                                                height = config.height,
-                                                frameRate = config.frameRate,
-                                                bitrate = config.videoBitrate ?: config.bitrate,
-                                                videoBitrate = config.videoBitrate
-                                                                ?: config.bitrate,
-                                                audioBitrate = config.audioBitrate,
+                                                width = finalWidth,
+                                                height = finalHeight,
+                                                frameRate = finalFrameRate,
+                                                bitrate = finalVideoBitrate,
+                                                videoBitrate = finalVideoBitrate,
+                                                audioBitrate = finalAudioBitrate,
                                                 enablePassthrough = config.enablePassthrough,
                                                 videoProfile = config.videoProfile,
                                                 tracks = tracks
@@ -336,31 +398,168 @@ class MediaEngineModule : Module() {
 
                 // MARK: - Utilities
                 AsyncFunction("stitchVideos") { videoPaths: List<String>, outputUri: String ->
-                        // Validate Inputs
-                        videoPaths.forEach { path ->
-                                val cleanPath =
-                                        if (path.startsWith("file://")) path.substring(7) else path
-                                if (!java.io.File(cleanPath).exists()) {
-                                        throw Exception("Input video not found: $path")
+                        try {
+                                return@AsyncFunction VideoStitcher.stitch(videoPaths, outputUri)
+                        } catch (e: Exception) {
+                                android.util.Log.w(
+                                        "MediaEngine",
+                                        "Fast stitching failed, falling back to transcoding",
+                                        e
+                                )
+
+                                if (videoPaths.isEmpty()) throw Exception("No videos to stitch")
+
+                                // Fallback: Transcode
+                                val reactContext =
+                                        appContext.reactContext
+                                                ?: throw Exception("React Context unavailable")
+
+                                // 1. Probe first video for defaults
+                                val firstVideo = videoPaths[0]
+                                val path =
+                                        if (firstVideo.startsWith("file://"))
+                                                firstVideo.substring(7)
+                                        else firstVideo
+                                val metadata =
+                                        extractMetadata(path)
+                                                ?: VideoMetadata(1280, 720, 30, 2000000, 0)
+
+                                var width = metadata.width
+                                var height = metadata.height
+                                if (metadata.rotation == 90 || metadata.rotation == 270) {
+                                        val temp = width
+                                        width = height
+                                        height = temp
                                 }
+
+                                // 2. Create Tracks
+                                val clips =
+                                        videoPaths.map {
+                                                CompositeVideoComposer.Clip(
+                                                        uri = it,
+                                                        startTime = 0.0,
+                                                        duration =
+                                                                9999.0, // Composer will determine
+                                                        // from file
+                                                        resizeMode =
+                                                                "contain" // Safest for stitching
+                                                        // different aspects
+                                                        )
+                                        }
+                                val videoTrack =
+                                        CompositeVideoComposer.Track(
+                                                CompositeVideoComposer.TrackType.VIDEO,
+                                                clips
+                                        )
+
+                                val config =
+                                        CompositeVideoComposer.CompositionConfig(
+                                                outputUri = outputUri,
+                                                width = width,
+                                                height = height,
+                                                frameRate = metadata.frameRate,
+                                                bitrate = metadata.bitrate,
+                                                videoBitrate = metadata.bitrate,
+                                                tracks = listOf(videoTrack)
+                                        )
+
+                                val composer = CompositeVideoComposer(reactContext, config)
+                                composer.start()
+                                return@AsyncFunction outputUri
                         }
-                        return@AsyncFunction VideoStitcher.stitch(videoPaths, outputUri)
                 }
         }
 
         private fun validateInputs(tracks: List<CompositionTrackRecord>) {
-                tracks.forEach { track ->
-                        track.clips.forEach { clip ->
-                                val uri = clip.uri
-                                if (!uri.startsWith("text:") && !uri.startsWith("http")) {
-                                        val path =
-                                                if (uri.startsWith("file://")) uri.substring(7)
-                                                else uri
-                                        if (!java.io.File(path).exists()) {
-                                                throw Exception("Input media not found: $uri")
+                // Validation relaxed to allow RenderEngine to handle loading
+        }
+
+        private data class VideoMetadata(
+                val width: Int,
+                val height: Int,
+                val frameRate: Int,
+                val bitrate: Int,
+                val rotation: Int
+        )
+
+        private fun extractMetadata(path: String): VideoMetadata? {
+                try {
+                        val extractor = android.media.MediaExtractor()
+                        extractor.setDataSource(path)
+
+                        for (i in 0 until extractor.trackCount) {
+                                val format = extractor.getTrackFormat(i)
+                                val mime = format.getString(android.media.MediaFormat.KEY_MIME)
+                                if (mime?.startsWith("video/") == true) {
+                                        val width =
+                                                if (format.containsKey(
+                                                                android.media.MediaFormat.KEY_WIDTH
+                                                        )
+                                                )
+                                                        format.getInteger(
+                                                                android.media.MediaFormat.KEY_WIDTH
+                                                        )
+                                                else 1280
+                                        val height =
+                                                if (format.containsKey(
+                                                                android.media.MediaFormat.KEY_HEIGHT
+                                                        )
+                                                )
+                                                        format.getInteger(
+                                                                android.media.MediaFormat.KEY_HEIGHT
+                                                        )
+                                                else 720
+
+                                        val rotation =
+                                                if (format.containsKey(
+                                                                android.media.MediaFormat
+                                                                        .KEY_ROTATION
+                                                        )
+                                                )
+                                                        format.getInteger(
+                                                                android.media.MediaFormat
+                                                                        .KEY_ROTATION
+                                                        )
+                                                else 0
+
+                                        var frameRate = 30
+                                        if (format.containsKey(
+                                                        android.media.MediaFormat.KEY_FRAME_RATE
+                                                )
+                                        ) {
+                                                frameRate =
+                                                        format.getInteger(
+                                                                android.media.MediaFormat
+                                                                        .KEY_FRAME_RATE
+                                                        )
                                         }
+
+                                        var bitrate = 2000000
+                                        if (format.containsKey(
+                                                        android.media.MediaFormat.KEY_BIT_RATE
+                                                )
+                                        ) {
+                                                bitrate =
+                                                        format.getInteger(
+                                                                android.media.MediaFormat
+                                                                        .KEY_BIT_RATE
+                                                        )
+                                        }
+
+                                        extractor.release()
+                                        return VideoMetadata(
+                                                width,
+                                                height,
+                                                frameRate,
+                                                bitrate,
+                                                rotation
+                                        )
                                 }
                         }
+                        extractor.release()
+                } catch (e: Exception) {
+                        // android.util.Log.w("MediaEngine", "Metadata extraction failed", e)
                 }
+                return null
         }
 }

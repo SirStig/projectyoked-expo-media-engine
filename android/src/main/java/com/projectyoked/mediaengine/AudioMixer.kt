@@ -9,6 +9,7 @@ import android.media.MediaMuxer
 import android.util.Log
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.ArrayList
 
 class AudioMixer(
         private val context: Context,
@@ -30,6 +31,37 @@ class AudioMixer(
         }
 
         if (audioClips.isEmpty()) return null
+
+        // --- Optimization: Single Track Bypass ---
+        if (audioClips.size == 1) {
+            val clip = audioClips[0].clip
+            if (clip.volume == 1.0f && clip.startTime == 0.0) {
+                // Check if duration matches source?
+                // If not trimming, we can just return source.
+                // Even if trimming, CompositeVideoComposer handles start/duration of the track.
+                // But AudioMixer returns a file that is expected to be STARTING at 0.
+                // If the clip starts at 5.0s in the timeline, AudioMixer should produce silence for
+                // 5s then audio?
+                // Wait. `AudioMixer` produces a file that REPLACES the audio track.
+                // `CompositeVideoComposer` then muxes it.
+                // If the track starts at 5s, the muxer expects the audio stream to start at 0 but
+                // be empty?
+                // No, `writeAudioUpTo` reads from the audio file.
+                // If I return the source file, it has audio starting at 0.
+                // If the Composition says "Audio starts at 5s", and I return a file...
+                // The `CompositeVideoComposer` logic (lines 194-211 of original, now modified in
+                // Passthrough)
+                // uses `audioMixerExtractor`.
+                // In `drainEncoder` logic (transcoding), it writes audio samples.
+                // Does it handle offset?
+                // `CompositeVideoComposer` expects `AudioMixer` to output a file that matches the
+                // TIMELINE.
+                // So if clip starts at 5s, the mixed file must have 5s silence.
+                // SO: I can ONLY bypass if `startTime == 0.0`.
+                Log.d(TAG, "AudioMixer Bypass: Returning source directly")
+                return clip.uri
+            }
+        }
 
         // Temp File
         val parentDir =
@@ -220,7 +252,7 @@ class AudioMixer(
     }
 
     // Helper to manage a single source clip
-    class PlaybackClip(val clip: CompositeVideoComposer.Clip) {
+    inner class PlaybackClip(val clip: CompositeVideoComposer.Clip) {
         private var extractor: MediaExtractor? = null
         private var decoder: MediaCodec? = null
         private var format: MediaFormat? = null
@@ -253,8 +285,7 @@ class AudioMixer(
                 }
 
                 val e = MediaExtractor()
-                val path = if (clip.uri.startsWith("file://")) clip.uri.substring(7) else clip.uri
-                e.setDataSource(path)
+                e.setDataSource(context, android.net.Uri.parse(clip.uri), null)
 
                 var trackIndex = -1
                 for (i in 0 until e.trackCount) {
@@ -297,31 +328,48 @@ class AudioMixer(
             val step = inputSampleRate.toDouble() / TARGET_SAMPLE_RATE.toDouble()
 
             try {
-                while (outIdx < output.size) {
-                    // Check if we have enough data (at least 2 stereo frames for interpolation)
-                    if (bufferPos + 4 >= bufferLimit) {
-                        fillBuffer()
-                        // If still not enough data after fill, we are likely EOS or starved
-                        if (bufferPos + 4 >= bufferLimit) break
+                // Optimization: Fast Path for matching sample rates (No interpolation)
+                if (inputSampleRate == TARGET_SAMPLE_RATE) {
+                    while (outIdx < output.size) {
+                        if (bufferPos + 2 >= bufferLimit) {
+                            fillBuffer()
+                            if (bufferPos + 2 >= bufferLimit) break
+                        }
+
+                        val currentL = tempBuffer[bufferPos++]
+                        val currentR = tempBuffer[bufferPos++]
+
+                        output[outIdx++] = (currentL / 32768f) * vol
+                        output[outIdx++] = (currentR / 32768f) * vol
                     }
+                } else {
+                    // Linear Interpolation Path
+                    while (outIdx < output.size) {
+                        // Check if we have enough data (at least 2 stereo frames for interpolation)
+                        if (bufferPos + 4 >= bufferLimit) {
+                            fillBuffer()
+                            // If still not enough data after fill, we are likely EOS or starved
+                            if (bufferPos + 4 >= bufferLimit) break
+                        }
 
-                    // Linear Interpolation
-                    val currentL = tempBuffer[bufferPos]
-                    val currentR = tempBuffer[bufferPos + 1]
-                    val nextL = tempBuffer[bufferPos + 2]
-                    val nextR = tempBuffer[bufferPos + 3]
+                        // Linear Interpolation
+                        val currentL = tempBuffer[bufferPos]
+                        val currentR = tempBuffer[bufferPos + 1]
+                        val nextL = tempBuffer[bufferPos + 2]
+                        val nextR = tempBuffer[bufferPos + 3]
 
-                    val frac = fractionalPos.toFloat()
-                    val sampleL = currentL + frac * (nextL - currentL)
-                    val sampleR = currentR + frac * (nextR - currentR)
+                        val frac = fractionalPos.toFloat()
+                        val sampleL = currentL + frac * (nextL - currentL)
+                        val sampleR = currentR + frac * (nextR - currentR)
 
-                    output[outIdx++] = (sampleL / 32768f) * vol
-                    output[outIdx++] = (sampleR / 32768f) * vol
+                        output[outIdx++] = (sampleL / 32768f) * vol
+                        output[outIdx++] = (sampleR / 32768f) * vol
 
-                    fractionalPos += step
-                    while (fractionalPos >= 1.0) {
-                        fractionalPos -= 1.0
-                        bufferPos += 2
+                        fractionalPos += step
+                        while (fractionalPos >= 1.0) {
+                            fractionalPos -= 1.0
+                            bufferPos += 2
+                        }
                     }
                 }
             } catch (e: Exception) {

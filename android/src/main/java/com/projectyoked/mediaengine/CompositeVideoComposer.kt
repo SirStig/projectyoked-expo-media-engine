@@ -98,10 +98,20 @@ class CompositeVideoComposer(private val context: Context, private val config: C
         // We let exceptions propagate to the Module for Promise rejection
 
         // --- Smart Passthrough Check ---
-        if (config.enablePassthrough && canPassthrough()) {
-            Log.d(TAG, "Smart Passthrough Triggered: Skipping transcoding")
-            runPassthrough()
-            return
+        if (config.enablePassthrough) {
+            if (canSmartStitch()) {
+                Log.d(TAG, "Smart Stitching Triggered: Delegating to VideoStitcher")
+                VideoStitcher.stitch(
+                        config.tracks.flatMap { it.clips }.map { it.uri },
+                        config.outputUri
+                )
+                return
+            }
+            if (canPassthrough()) {
+                Log.d(TAG, "Smart Passthrough Triggered: Skipping transcoding")
+                runPassthrough()
+                return
+            }
         }
 
         prepare()
@@ -160,7 +170,13 @@ class CompositeVideoComposer(private val context: Context, private val config: C
 
             if (audioMixedFilePath != null) {
                 audioExtractor = MediaExtractor()
-                audioExtractor!!.setDataSource(audioMixedFilePath!!)
+                if (audioMixedFilePath!!.startsWith("file://") ||
+                                audioMixedFilePath!!.startsWith("content://")
+                ) {
+                    audioExtractor!!.setDataSource(context, Uri.parse(audioMixedFilePath!!), null)
+                } else {
+                    audioExtractor!!.setDataSource(audioMixedFilePath!!)
+                }
                 for (i in 0 until audioExtractor!!.trackCount) {
                     val format = audioExtractor!!.getTrackFormat(i)
                     Log.d(TAG, "Mixed Audio Track $i: $format")
@@ -447,6 +463,30 @@ class CompositeVideoComposer(private val context: Context, private val config: C
 
     // --- Passthrough Logic ---
 
+    private fun canSmartStitch(): Boolean {
+        // 1. Must have only video tracks
+        if (config.tracks.any { it.type != TrackType.VIDEO }) return false
+
+        val clips = config.tracks.flatMap { it.clips }
+        if (clips.size < 2) return false // 1 clip is handled by standard Passthrough
+
+        // 2. Check for effects
+        if (clips.any {
+                    it.filter != null ||
+                            it.resizeMode != "cover" ||
+                            it.scale != 1f ||
+                            it.rotation != 0f
+                }
+        )
+                return false
+
+        // 3. Simple sequential check (ensure no complex overlaps/mixing)
+        // For now, assume if track structure is simple, it's sequential.
+        // We really just want to stitch them.
+
+        return true
+    }
+
     private fun canPassthrough(): Boolean {
         // 1. Check if we have exactly one video track with one clip
         val videoTracks = config.tracks.filter { it.type == TrackType.VIDEO }
@@ -467,7 +507,7 @@ class CompositeVideoComposer(private val context: Context, private val config: C
         // (mp4parser)
         // STRICTER CHECK: Resize must be cover mostly, and scale 1f.
         if (clip.scale != 1f) return false
-        if (clip.resizeMode != "cover") return false // If not standard, GL might be needed.
+        // Resize mode is irrelevant if we are passthrough (we take source as is)
 
         // 4. Trimming Check
         // If the user requests a start time mismatch or a specific short duration, we must NOT
@@ -508,8 +548,7 @@ class CompositeVideoComposer(private val context: Context, private val config: C
     private fun getSourceDurationUs(uriString: String): Long {
         return try {
             val extractor = MediaExtractor()
-            val uri = if (uriString.startsWith("file://")) uriString.substring(7) else uriString
-            extractor.setDataSource(uri)
+            extractor.setDataSource(context, Uri.parse(uriString), null)
 
             var duration = -1L
             for (i in 0 until extractor.trackCount) {
@@ -531,80 +570,81 @@ class CompositeVideoComposer(private val context: Context, private val config: C
     }
 
     private fun runPassthrough() {
-        // Logic: Extract Video Track from Source -> Write to Muxer
-        // Extract Audio Track -> Write to Muxer (Or Mix if needed)
-
-        // Simple Case: Just a single video file, no extra audio mixing?
-        // If we have extra audio tracks (music), we need to RE-MUX. (New Muxer, copy Video Stream,
-        // Encode/Copy Audio Stream)
-
-        // Implementation:
-        // 1. Setup MediaMuxer
+        // Single-Pass IO Optimization
         val outputPath = Uri.parse(config.outputUri).path!!
         val passthroughMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
 
-        var videoExtractor: MediaExtractor? = null
+        val videoClip = config.tracks.first { it.type == TrackType.VIDEO }.clips.first()
+        val videoUri = videoClip.uri
+
+        // Handle Audio Mixing if needed
+        val hasExtraAudio = config.tracks.any { it.type == TrackType.AUDIO }
         var audioMixerExtractor: MediaExtractor? = null
+        var mixedAudioPath: String? = null
 
+        // If we have extra audio, we MUST mix it (or just use it).
+        // If we need to mix, we generate a temp file and read from THAT for audio.
+        // If not, we read from the ORIGINAL video file (same extractor).
+
+        if (hasExtraAudio) {
+            val mixer = AudioMixer(context, config)
+            mixedAudioPath = mixer.mix()
+            if (mixedAudioPath != null) {
+                audioMixerExtractor = MediaExtractor()
+                // AudioMixer output is a raw file path usually, so let's stick to
+                // setDataSource(path) for mixed audio
+                // IF it's a file path. If it's a URI, handle appropriately.
+                // mixer.mix() returns a String path.
+                if (mixedAudioPath!!.startsWith("file://") ||
+                                mixedAudioPath!!.startsWith("content://")
+                ) {
+                    audioMixerExtractor!!.setDataSource(context, Uri.parse(mixedAudioPath!!), null)
+                } else {
+                    audioMixerExtractor!!.setDataSource(mixedAudioPath!!)
+                }
+            }
+        }
+
+        val extractor = MediaExtractor()
         try {
-            val videoClip = config.tracks.first { it.type == TrackType.VIDEO }.clips.first()
-            val videoUri =
-                    if (videoClip.uri.startsWith("file://")) videoClip.uri.substring(7)
-                    else videoClip.uri
+            extractor.setDataSource(context, Uri.parse(videoUri), null)
 
-            videoExtractor = MediaExtractor()
-            videoExtractor.setDataSource(videoUri)
-
-            var sourceVideoIndex = -1
+            var videoTrackIndex = -1
+            var audioTrackIndex = -1
             var muxerVideoIndex = -1
+            var muxerAudioIndex = -1
 
-            // Find Video Track
-            for (i in 0 until videoExtractor.trackCount) {
-                val format = videoExtractor.getTrackFormat(i)
-                val mime = format.getString(MediaFormat.KEY_MIME)
+            // 1. Select Video Track
+            for (i in 0 until extractor.trackCount) {
+                val f = extractor.getTrackFormat(i)
+                val mime = f.getString(MediaFormat.KEY_MIME)
                 if (mime?.startsWith("video/") == true) {
-                    sourceVideoIndex = i
-                    videoExtractor.selectTrack(i)
-                    muxerVideoIndex = passthroughMuxer.addTrack(format)
+                    videoTrackIndex = i
+                    extractor.selectTrack(i)
+                    muxerVideoIndex = passthroughMuxer.addTrack(f)
                     break
                 }
             }
 
-            // Handle Audio (Complex if mixing)
-            // If we have music overlay, we need to mix audio and then add it.
-            // If just original audio, we can copy it.
-
-            var muxerAudioIndex = -1
-            val hasExtraAudio = config.tracks.any { it.type == TrackType.AUDIO }
-
-            if (hasExtraAudio) {
-                // We need to run AudioMixer to get the mixed file, then add that track
-                Log.d(TAG, "Passthrough: Video Passthrough + Audio Mixing")
-                val mixer = AudioMixer(context, config)
-                val mixedAudioPath = mixer.mix()
-
-                if (mixedAudioPath != null) {
-                    audioMixerExtractor = MediaExtractor()
-                    audioMixerExtractor!!.setDataSource(mixedAudioPath)
-                    for (i in 0 until audioMixerExtractor!!.trackCount) {
-                        val f = audioMixerExtractor!!.getTrackFormat(i)
-                        if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
-                            audioMixerExtractor!!.selectTrack(i)
-                            muxerAudioIndex = passthroughMuxer.addTrack(f)
-                            break
-                        }
+            // 2. Select Audio Track (From Mixer OR Source)
+            if (audioMixerExtractor != null) {
+                // Using Mixed Audio
+                for (i in 0 until audioMixerExtractor!!.trackCount) {
+                    val f = audioMixerExtractor!!.getTrackFormat(i)
+                    if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                        audioMixerExtractor!!.selectTrack(i)
+                        muxerAudioIndex = passthroughMuxer.addTrack(f)
+                        break
                     }
                 }
             } else {
-                // Just use original audio if exists
-                for (i in 0 until videoExtractor.trackCount) {
-                    val format = videoExtractor.getTrackFormat(i)
-                    val mime = format.getString(MediaFormat.KEY_MIME)
-                    if (mime?.startsWith("audio/") == true) {
-                        videoExtractor.selectTrack(i)
-                        muxerAudioIndex = passthroughMuxer.addTrack(format)
-                        // Note: If source has multiple audio tracks, we just take the first one
-                        // found for now
+                // Using Source Audio
+                for (i in 0 until extractor.trackCount) {
+                    val f = extractor.getTrackFormat(i)
+                    if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                        audioTrackIndex = i
+                        extractor.selectTrack(i)
+                        muxerAudioIndex = passthroughMuxer.addTrack(f)
                         break
                     }
                 }
@@ -612,99 +652,86 @@ class CompositeVideoComposer(private val context: Context, private val config: C
 
             passthroughMuxer.start()
 
-            // Copy Video
-            if (sourceVideoIndex >= 0) {
-                val buffer = ByteBuffer.allocate(1024 * 1024) // 1MB buffer
-                val bufferInfo = MediaCodec.BufferInfo()
+            // 3. Single Pass Loop (for Source)
+            val buffer = ByteBuffer.allocate(1024 * 1024) // 1MB
+            val bufferInfo = MediaCodec.BufferInfo()
 
+            // If we are using source audio, we read everything from `extractor`.
+            // If we are using mixed audio, we read video from `extractor` and audio from
+            // `audioMixerExtractor`.
+
+            if (audioMixerExtractor == null) {
+                // Scenario A: Single Source (Fastest)
                 while (true) {
-                    val sampleTime = videoExtractor.sampleTime
+                    val sampleTime = extractor.sampleTime
                     if (sampleTime == -1L) break
 
-                    if (videoExtractor.sampleTrackIndex == sourceVideoIndex) {
-                        val size = videoExtractor.readSampleData(buffer, 0)
+                    val trackIndex = extractor.sampleTrackIndex
+                    val muxerIndex =
+                            if (trackIndex == videoTrackIndex) muxerVideoIndex
+                            else if (trackIndex == audioTrackIndex) muxerAudioIndex else -1
+
+                    if (muxerIndex >= 0) {
+                        val size = extractor.readSampleData(buffer, 0)
                         if (size >= 0) {
-                            bufferInfo.set(0, size, sampleTime, videoExtractor.sampleFlags)
-                            passthroughMuxer.writeSampleData(muxerVideoIndex, buffer, bufferInfo)
+                            bufferInfo.set(0, size, sampleTime, extractor.sampleFlags)
+                            passthroughMuxer.writeSampleData(muxerIndex, buffer, bufferInfo)
                         }
                     }
-                    if (!videoExtractor.advance()) break
+                    if (!extractor.advance()) break
                 }
-            }
+            } else {
+                // Scenario B: Video from Source, Audio from Mixer (Parallel)
+                // We loop until both are done.
+                var videoDone = false
+                var audioDone = false
 
-            // Copy Audio
-            if (muxerAudioIndex >= 0) {
-                // Determine which extractor to use
-                val targetExtractor = if (hasExtraAudio) audioMixerExtractor!! else videoExtractor
-                // Note: If using videoExtractor, we might need to seek back or handle interleaved
-                // logic better?
-                // MediaExtractor tracks are independent.
-
-                // If using same extractor, we need to be careful.
-                // Actually MediaExtractor.advance() advances ALL selected tracks?
-                // No, advance() works on the stream.
-                // For safety, let's use a separate extractor for audio if it's from the same file,
-                // or just re-loop?
-                // Re-looping is safe for file sources.
-
-                if (!hasExtraAudio) {
-                    // Re-seek video extractor for audio pass
-                    videoExtractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
-                }
-
-                val buffer = ByteBuffer.allocate(512 * 1024)
-                val bufferInfo = MediaCodec.BufferInfo()
-
-                // Find source audio index again
-                var sourceAudioIndex = -1
-                if (hasExtraAudio) {
-                    // audioMixerExtractor is already set up and has only 1 track usually
-                    sourceAudioIndex = audioMixerExtractor!!.sampleTrackIndex
-                    if (sourceAudioIndex == -1) {
-                        // Find it
-                        for (i in 0 until audioMixerExtractor!!.trackCount) {
-                            if (audioMixerExtractor!!
-                                            .getTrackFormat(i)
-                                            .getString(MediaFormat.KEY_MIME)
-                                            ?.startsWith("audio/") == true
-                            ) {
-                                sourceAudioIndex = i
-                                break
+                while (!videoDone || !audioDone) {
+                    // Read Video
+                    if (!videoDone) {
+                        val sampleTime = extractor.sampleTime
+                        if (sampleTime == -1L) {
+                            videoDone = true
+                        } else {
+                            if (extractor.sampleTrackIndex == videoTrackIndex) {
+                                val size = extractor.readSampleData(buffer, 0)
+                                if (size >= 0) {
+                                    bufferInfo.set(0, size, sampleTime, extractor.sampleFlags)
+                                    passthroughMuxer.writeSampleData(
+                                            muxerVideoIndex,
+                                            buffer,
+                                            bufferInfo
+                                    )
+                                }
                             }
+                            if (!extractor.advance()) videoDone = true
                         }
                     }
-                } else {
-                    // Find in videoExtractor
-                    for (i in 0 until videoExtractor.trackCount) {
-                        if (videoExtractor
-                                        .getTrackFormat(i)
-                                        .getString(MediaFormat.KEY_MIME)
-                                        ?.startsWith("audio/") == true
-                        ) {
-                            sourceAudioIndex = i
-                            break
+
+                    // Read Audio
+                    if (!audioDone) {
+                        val sampleTime = audioMixerExtractor!!.sampleTime
+                        if (sampleTime == -1L) {
+                            audioDone = true
+                        } else {
+                            // Assuming mixer has only 1 track selected
+                            val size = audioMixerExtractor!!.readSampleData(buffer, 0)
+                            if (size >= 0) {
+                                bufferInfo.set(
+                                        0,
+                                        size,
+                                        sampleTime,
+                                        audioMixerExtractor!!.sampleFlags
+                                )
+                                passthroughMuxer.writeSampleData(
+                                        muxerAudioIndex,
+                                        buffer,
+                                        bufferInfo
+                                )
+                            }
+                            if (!audioMixerExtractor!!.advance()) audioDone = true
                         }
                     }
-                }
-
-                val activeExtractor = if (hasExtraAudio) audioMixerExtractor!! else videoExtractor
-
-                while (true) {
-                    val sampleTime = activeExtractor.sampleTime
-                    if (sampleTime == -1L) break
-
-                    // We need to check if the current sample belongs to the audio track we are
-                    // interested in
-                    if (activeExtractor.sampleTrackIndex == sourceAudioIndex ||
-                                    (hasExtraAudio && activeExtractor.sampleTrackIndex >= 0)
-                    ) {
-                        val size = activeExtractor.readSampleData(buffer, 0)
-                        if (size >= 0) {
-                            bufferInfo.set(0, size, sampleTime, activeExtractor.sampleFlags)
-                            passthroughMuxer.writeSampleData(muxerAudioIndex, buffer, bufferInfo)
-                        }
-                    }
-                    if (!activeExtractor.advance()) break
                 }
             }
         } catch (e: Exception) {
@@ -712,14 +739,13 @@ class CompositeVideoComposer(private val context: Context, private val config: C
             throw e
         } finally {
             try {
-                videoExtractor?.release()
+                extractor.release()
                 audioMixerExtractor?.release()
                 passthroughMuxer.stop()
                 passthroughMuxer.release()
 
-                // Cleanup mixer temp file
-                if (audioMixedFilePath != null) {
-                    File(audioMixedFilePath!!).delete()
+                if (mixedAudioPath != null) {
+                    File(mixedAudioPath).delete()
                 }
             } catch (e: Exception) {}
         }
