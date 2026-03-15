@@ -1,6 +1,6 @@
 {
     "name": "@projectyoked/expo-media-engine",
-    "version": "0.1.3",
+    "version": "1.0.0-alpha-1",
     "description": "Expo module for video composition with text/emoji overlays, audio extraction, and waveform generation. Built with Expo Modules API.",
     "main": "src/index.js",
     "types": "src/index.d.ts",

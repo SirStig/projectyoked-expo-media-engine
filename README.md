@@ -6,17 +6,17 @@
 [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey)](https://github.com/SirStig/projectyoked-expo-media-engine)
 [![Expo](https://img.shields.io/badge/Expo-49%2B-blue.svg)](https://expo.dev)
 
-**Professional video composition and editing for Expo apps.** Built with the Expo Modules API for high-performance native video processing with text/emoji overlays, audio extraction, and waveform generation.
+**Professional video composition and editing for Expo apps.** Current release: **1.0.0-alpha-1** (alpha; see [CHANGELOG](CHANGELOG.md)). Built with the Expo Modules API for high-performance native video processing with text/emoji overlays, audio extraction, and waveform generation.
 
 ## Features
 
-- **Video Composition**: Create videos with text and emoji overlays burned into the video
-- **Audio Extraction**: Extract audio tracks from video files
-- **Waveform Generation**: Generate amplitude waveforms from audio files
-- **Text Overlays**: Add timed text overlays with custom colors, sizes, and positioning
-- **Emoji Overlays**: Add timed emoji overlays with custom sizes and positioning
-- **Audio Mixing**: Mix original video audio with background music at custom volumes
-- **Hardware Accelerated**: Uses native APIs (AVFoundation on iOS, MediaCodec on Android)
+- **Multi-track composition**: `composeCompositeVideo` — video/audio/text tracks with clips, transforms, and timed text/emoji overlays
+- **Video stitching**: `stitchVideos` — concatenate multiple videos (passthrough when possible)
+- **Video compression**: `compressVideo` — reduce file size, resolution, or bitrate
+- **Legacy composition**: `exportComposition` — single-video + text/emoji overlays and audio mixing
+- **Audio extraction**: Extract audio tracks from video files
+- **Waveform generation**: Generate amplitude waveforms from audio files
+- **Hardware accelerated**: AVFoundation (iOS), MediaCodec/OpenGL (Android)
 - **Built for Expo**: Native Expo module with full TypeScript support
 
 ## Installation
@@ -134,6 +134,25 @@ const config = {
 const outputPath = await MediaEngine.exportComposition(config);
 ```
 
+### Stitch Multiple Videos
+
+```javascript
+const outputUri = await MediaEngine.stitchVideos(
+  ['/path/to/a.mp4', '/path/to/b.mp4'],
+  '/path/to/output.mp4'
+);
+```
+
+### Compress Video
+
+```javascript
+const outputUri = await MediaEngine.compressVideo({
+  inputUri: '/path/to/video.mp4',
+  outputUri: '/path/to/compressed.mp4',
+  quality: 'medium',
+});
+```
+
 ## API Reference
 
 ### `extractAudio(videoUri: string, outputUri: string): Promise<string>`
@@ -184,6 +203,30 @@ Creates a video with text/emoji overlays and audio mixing.
 - `musicPath` (string): Path to background music file
 - `musicVolume` (number): Background music volume (0-1)
 - `originalVolume` (number): Original video audio volume (0-1)
+
+**Returns:** Promise resolving to the output video file path
+
+---
+
+### `composeCompositeVideo(config: CompositionConfig): Promise<string>`
+
+Multi-track composition: video/audio/text tracks with clips, transforms (position, scale, rotation, resizeMode), and timed text/emoji overlays. Use for multi-clip timelines; supports smart passthrough when re-encoding is not needed.
+
+**Returns:** Promise resolving to the output video file path
+
+---
+
+### `stitchVideos(videoPaths: string[], outputUri: string): Promise<string>`
+
+Concatenates multiple videos into one. Uses passthrough on iOS; on Android uses fast path when possible with transcoding fallback.
+
+**Returns:** Promise resolving to the output video file path
+
+---
+
+### `compressVideo(config: object): Promise<string>`
+
+Compresses a video (bitrate/resolution). Config: `inputUri`, `outputUri`, optional `quality` ('low' | 'medium' | 'high') or `bitrate`.
 
 **Returns:** Promise resolving to the output video file path
 
