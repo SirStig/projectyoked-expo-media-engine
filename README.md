@@ -6,7 +6,7 @@
 [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey)](https://github.com/SirStig/projectyoked-expo-media-engine)
 [![Expo](https://img.shields.io/badge/Expo-49%2B-blue.svg)](https://expo.dev)
 
-**Professional video composition and editing for Expo apps.** Current release: **1.0.0-alpha-1** (alpha; see [CHANGELOG](CHANGELOG.md)). Built with the Expo Modules API for high-performance native video processing with text/emoji overlays, audio extraction, and waveform generation.
+**Professional video composition and editing for Expo apps.** Built with the Expo Modules API for high-performance native video processing with text/emoji overlays, audio extraction, and waveform generation.
 
 ## Features
 
@@ -21,14 +21,21 @@
 
 ## Installation
 
+Default install gets the latest stable (0.1.x). To use the alpha (multi-track composition, stitching, compression), install the `alpha` tag:
+
 ```bash
+# Latest stable (0.1.x)
 npm install @projectyoked/expo-media-engine
+
+# Alpha (1.0.0-alpha-1)
+npm install @projectyoked/expo-media-engine@alpha
 ```
 
-or
+or with yarn:
 
 ```bash
 yarn add @projectyoked/expo-media-engine
+yarn add @projectyoked/expo-media-engine@alpha
 ```
 
 ### Setup
@@ -295,6 +302,17 @@ npx expo run:ios    # or run:android
 npx pod-install     # iOS
 # Android auto-links
 ```
+
+### Publishing
+
+Alpha releases are published under the `alpha` dist-tag so `latest` stays on the current stable (0.1.x). After bumping version to e.g. `1.0.0-alpha-1`:
+
+```bash
+npm run validate
+npm run publish:alpha
+```
+
+Users get stable with `npm install @projectyoked/expo-media-engine` and alpha with `npm install @projectyoked/expo-media-engine@alpha`.
 
 ### TypeScript Support
 

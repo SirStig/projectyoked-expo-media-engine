@@ -40,7 +40,8 @@
         "validate": "npm run lint && npm run typecheck && npm test",
         "prepare": "npm run build",
         "build": "echo \"Native module - no build step required\"",
-        "clean": "rm -rf node_modules && rm -rf ios/build && rm -rf android/build && rm -rf android/.gradle"
+        "clean": "rm -rf node_modules && rm -rf ios/build && rm -rf android/build && rm -rf android/.gradle",
+        "publish:alpha": "npm publish --tag alpha"
     },
     "peerDependencies": {
         "expo": ">=49.0.0",
