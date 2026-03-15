@@ -28,6 +28,10 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
     private val videoTextureIds = mutableMapOf<String, Int>()
     private val bitmapTextures = mutableMapOf<String, Int>()
 
+    // Cached video dimensions per URI to avoid re-querying track format every frame
+    private data class VideoSize(val width: Int, val height: Int, val rotation: Int)
+    private val videoMetadata = mutableMapOf<String, VideoSize>()
+
     // Transform matrix for texture
     private val transformMatrix = FloatArray(16)
     private val mvpMatrix = FloatArray(16)
@@ -82,17 +86,14 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
-        // 1. Render Video Tracks (Bottom to Top)
-        val videoTracks = config.tracks.filter { it.type == CompositeVideoComposer.TrackType.VIDEO }
+        // 1. Render Video + Image Tracks (Bottom to Top)
+        val visualTrackTypes = setOf(CompositeVideoComposer.TrackType.VIDEO, CompositeVideoComposer.TrackType.IMAGE)
+        val visualTracks = config.tracks.filter { it.type in visualTrackTypes }
 
-        videoTracks.forEach { track ->
-            // Find active clip
-            val activeClip =
-                    track.clips.find {
-                        currentTimeSec >= it.startTime &&
-                                currentTimeSec < (it.startTime + it.duration)
-                    }
-
+        visualTracks.forEach { track ->
+            val activeClip = track.clips.find {
+                currentTimeSec >= it.startTime && currentTimeSec < (it.startTime + it.duration)
+            }
             if (activeClip != null) {
                 renderClip(activeClip, currentTimeUs)
             }
@@ -155,9 +156,9 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             }
             surfaceTextures.remove(uri)
 
-            extractors[uri]?.release() // Re-create extractor on demand too?
-            // Yes, extractor is cheap, but holding file handle might be bad.
+            extractors[uri]?.release()
             extractors.remove(uri)
+            videoMetadata.remove(uri)
         }
 
         // Cleanup Bitmaps (Images)
@@ -175,8 +176,6 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
     private fun renderClip(clip: CompositeVideoComposer.Clip, timelineTimeUs: Long) {
         val uri = clip.uri
 
-        // Check for Image
-        // Check for Image
         val mime = getMimeType(uri)
         if (mime.startsWith("image/")) {
             // Lazy Load
@@ -232,36 +231,7 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         }
         val extractor = extractors[uri]!!
 
-        // Ensure Decoder Exists
-        if (!decoders.containsKey(uri)) {
-            val trackIndex = selectVideoTrack(extractor) // ... (rest of decoder setup)
-            if (trackIndex < 0) return // ...
-
-            extractor.selectTrack(trackIndex)
-            val format = extractor.getTrackFormat(trackIndex)
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: return
-
-            val decoder = MediaCodec.createDecoderByType(mime)
-            // ... Code to setup decoder ...
-            val textureId = textureRenderer!!.createTextureID() // ...
-            // ...
-
-            // WE NEED TO KEEP ORIGINAL CODE STRUCTURE OR IT BREAKS.
-            // Replacing huge block is risky.
-            // Instead, I will implement `renderVisual` helper and call it from here.
-            // But first let's fix the logic flow.
-        }
-
-        // ... (Decoder logic, seeking, etc - SKIP for simplification in replacement)
-        // ...
-        // THIS REPLACEMENT IS GETTING TOO COMPLEX.
-        // I should just handle image logic separately at the top and return.
-
-        // (See above 'Check for Image')
-
-        // ... (Original Video Logic continues below)
-
-        // Ensure Decoder Exists
+        // Ensure Decoder Exists (single canonical init block)
         if (!decoders.containsKey(uri)) {
             val trackIndex = selectVideoTrack(extractor)
             if (trackIndex < 0) {
@@ -274,14 +244,13 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             val format = extractor.getTrackFormat(trackIndex)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return
 
-            val decoder = MediaCodec.createDecoderByType(mime)
-            // Create SurfaceTexture for this decoder output
-            val textureId =
-                    textureRenderer!!.createTextureID() // We need to expose this or manage IDs
-            // Hack for now: TextureRenderer generates one ID.
-            // Real implementation needs a TextureManager.
-            // Let's create a new texture ID manually here for valid context
+            // Cache video dimensions so we don't re-query every frame
+            val rawW = if (format.containsKey(MediaFormat.KEY_WIDTH)) format.getInteger(MediaFormat.KEY_WIDTH) else 1280
+            val rawH = if (format.containsKey(MediaFormat.KEY_HEIGHT)) format.getInteger(MediaFormat.KEY_HEIGHT) else 720
+            val rotation = if (format.containsKey(MediaFormat.KEY_ROTATION)) format.getInteger(MediaFormat.KEY_ROTATION) else 0
+            videoMetadata[uri] = VideoSize(rawW, rawH, rotation)
 
+            val decoder = MediaCodec.createDecoderByType(mime)
             val texIds = IntArray(1)
             GLES20.glGenTextures(1, texIds, 0)
             val texId = texIds[0]
@@ -295,128 +264,45 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             decoders[uri] = decoder
             surfaces[uri] = surface
             surfaceTextures[uri] = st
-            // Store the texture ID for drawing
             videoTextureIds[uri] = texId
 
-            // Seek to start for this clip?
+            // Seek to clipStart on first init
+            val clipStartUs = (clip.clipStart * 1_000_000).toLong()
+            if (clipStartUs > 0) {
+                extractor.seekTo(clipStartUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+            }
+            // Seed lastRenderedTime so frame 2 doesn't trigger an unnecessary seek
+            lastRenderedTime[uri] = clipStartUs
         } else {
-            // Calculate clip-relative time
-            val clipRelativeTimeUs = (timelineTimeUs - (clip.startTime * 1_000_000)).toLong()
+            // Compute source-relative time accounting for clipStart offset
+            val clipRelativeTimeUs = timelineTimeUs - (clip.startTime * 1_000_000).toLong()
+            val sourceTimeUs = (clip.clipStart * 1_000_000).toLong() + clipRelativeTimeUs
 
-            // Smart Seek: Only seek if we are far from expected time (sequential)
             val lastTime = lastRenderedTime[uri] ?: -1L
-            val isSequential =
-                    lastTime >= 0 &&
-                            kotlin.math.abs(clipRelativeTimeUs - lastTime) <
-                                    100_000 // 100ms tolerance
+            val isSequential = lastTime >= 0 && kotlin.math.abs(sourceTimeUs - lastTime) < 200_000L
 
             if (!isSequential) {
-                Log.d("RenderEngine", "Seeking to $clipRelativeTimeUs (Last: $lastTime)")
-                extractor.seekTo(clipRelativeTimeUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
-                // If we seek, we should probably flush decoder to avoid decoding artifacts or old
-                // frames?
-                // But flushing requires restarting or careful handling.
-                // For now, let's just seek extractor. The decoder will eventually get the new
-                // I-frame.
-                // ideally: decoders[uri]?.flush()
+                Log.d("RenderEngine", "Seeking to $sourceTimeUs (Last: $lastTime)")
+                extractor.seekTo(sourceTimeUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
                 decoders[uri]?.flush()
             }
-            lastRenderedTime[uri] = clipRelativeTimeUs
+            lastRenderedTime[uri] = sourceTimeUs
         }
 
         val decoder = decoders[uri]!!
         val st = surfaceTextures[uri]!!
         val texId = videoTextureIds[uri]!!
 
-        // Calculate Aspect Ratio Matrix
-        // extractor is already defined above
-        // Note: caching format would be better
-        val trackIndex = selectVideoTrack(extractor) // We know it exists
-        val format = extractor.getTrackFormat(trackIndex)
-        var width = format.getInteger(MediaFormat.KEY_WIDTH)
-        var height = format.getInteger(MediaFormat.KEY_HEIGHT)
-        val rotation =
-                if (format.containsKey(MediaFormat.KEY_ROTATION))
-                        format.getInteger(MediaFormat.KEY_ROTATION)
-                else 0
+        // Use cached video metadata (avoid re-querying track format every frame)
+        val meta = videoMetadata[uri]
+        val srcW = if (meta != null && (meta.rotation == 90 || meta.rotation == 270)) meta.height else meta?.width ?: 1280
+        val srcH = if (meta != null && (meta.rotation == 90 || meta.rotation == 270)) meta.width else meta?.height ?: 720
 
-        if (rotation == 90 || rotation == 270) {
-            val temp = width
-            width = height
-            height = temp
-        }
-
-        var videoAspect = width.toFloat() / height.toFloat()
-
-        // CORRECTION: If the USER applies a rotation (clip.rotation) of 90 or 270,
-        // we must effectively swap the aspect ratio *again* for the fit calculation
-        // because the "content" is now rotated relative to the view.
-        val userRotation = kotlin.math.round(clip.rotation).toInt() % 360
-        if (userRotation == 90 || userRotation == 270) {
-            videoAspect = 1f / videoAspect
-        }
-        val viewAspect = config.width.toFloat() / config.height.toFloat()
-
-        Matrix.setIdentityM(mvpMatrix, 0)
-
-        // 1. Apply User Transformations (Translation, Rotation, Scale)
-        // Order: Translate -> Rotate -> Scale (Standard TRS)
-        Matrix.translateM(mvpMatrix, 0, clip.x, clip.y, 0f)
-        Matrix.rotateM(mvpMatrix, 0, clip.rotation, 0f, 0f, 1f)
-        Matrix.scaleM(mvpMatrix, 0, clip.scale, clip.scale, 1f)
-
-        // 2. Apply Aspect Ratio Correction based on ResizeMode
-        var scaleX = 1f
-        var scaleY = 1f
-
-        if (clip.resizeMode == "stretch") {
-            // No aspect correction, let it stretch
-            scaleX = 1f
-            scaleY = 1f
-        } else if (clip.resizeMode == "cover") {
-            if (videoAspect > viewAspect) {
-                // Video is wider than view: Scale X up to cover width
-                scaleX = videoAspect / viewAspect
-                scaleY = 1f
-            } else {
-                // Video is taller than view: Scale Y up to cover height
-                scaleX = 1f
-                scaleY = viewAspect / videoAspect
-            }
-        } else {
-            // "contain" (Fit) - Default
-            if (videoAspect > viewAspect) {
-                // Video is wider than view: Scale Y down to fit width
-                scaleX = 1f
-                scaleY = viewAspect / videoAspect
-            } else {
-                // Video is taller than view: Scale X down to fit height
-                scaleX = videoAspect / viewAspect
-                scaleY = 1f
-            }
-        }
-
-        // CORRECTION 2: Since we apply Rotation AFTER Scale in the MVP calculation order (T * R *
-        // S),
-        // Wait, standard order is T * R * S.
-        // If we Scale then Rotate.
-        // Scale(2, 1) -> Wide. Rotate(90) -> Tall.
-        // If we wanted "Wide" relative to screen, we need to scale the Y axis (which becomes X).
-        // So yes, we MUST swap scale factors if we are rotated 90/270.
-
-        if (userRotation == 90 || userRotation == 270) {
-            val tempScale = scaleX
-            scaleX = scaleY
-            scaleY = tempScale
-        }
-
-        Matrix.scaleM(mvpMatrix, 0, scaleX, scaleY, 1f)
+        // clipEnd enforcement: stop feeding frames beyond clipEnd
+        val clipEndUs = if (clip.clipEnd > 0) (clip.clipEnd * 1_000_000).toLong() else Long.MAX_VALUE
 
         // Feed and Drain Loop (Interleaved)
-        // We starve the decoder if we only feed once then wait. We must keep feeding if it accepts
-        // input.
-        val maxTimeMs =
-                System.currentTimeMillis() + 2500 // 2.5s total timeout per frame (generous safety)
+        val maxTimeMs = System.currentTimeMillis() + 2500
         val bufferInfo = MediaCodec.BufferInfo()
         var frameRendered = false
 
@@ -427,27 +313,14 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
                 val inputBufIdx = decoder.dequeueInputBuffer(0)
                 if (inputBufIdx >= 0) {
                     val buf = decoder.getInputBuffer(inputBufIdx)!!
+                    val sampleTime = extractor.sampleTime
                     val sampleSize = extractor.readSampleData(buf, 0)
-                    if (sampleSize < 0) {
-                        Log.d("RenderEngine", "Input EOS at ${extractor.sampleTime}")
-                        decoder.queueInputBuffer(
-                                inputBufIdx,
-                                0,
-                                0,
-                                0,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                        )
+                    if (sampleSize < 0 || sampleTime > clipEndUs) {
+                        Log.d("RenderEngine", "Input EOS at $sampleTime (clipEnd=$clipEndUs)")
+                        decoder.queueInputBuffer(inputBufIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                         inputAvailable = false
                     } else {
-                        // Log.v("RenderEngine", "Queue Input: size=$sampleSize
-                        // time=${extractor.sampleTime}")
-                        decoder.queueInputBuffer(
-                                inputBufIdx,
-                                0,
-                                sampleSize,
-                                extractor.sampleTime,
-                                0
-                        )
+                        decoder.queueInputBuffer(inputBufIdx, 0, sampleSize, sampleTime, 0)
                         extractor.advance()
                     }
                 } else {
@@ -458,21 +331,17 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             // 2. Drain Output (Burst until frame)
             var outputAvailable = true
             while (outputAvailable && !frameRendered) {
-                val outBufIdx = decoder.dequeueOutputBuffer(bufferInfo, 10000) // 10ms wait
+                val outBufIdx = decoder.dequeueOutputBuffer(bufferInfo, 10000)
                 if (outBufIdx >= 0) {
                     if (bufferInfo.size > 0) {
-                        // Check timestamps? For now we just assume sequential render
                         decoder.releaseOutputBuffer(outBufIdx, true)
                         st.updateTexImage()
-                        st.getTransformMatrix(transformMatrix)
+                        val stMatrix = FloatArray(16)
+                        st.getTransformMatrix(stMatrix)
 
-                        var filterType = 0
-                        if (clip.filter == "grayscale") filterType = 1
-                        else if (clip.filter == "sepia") filterType = 2
-
-                        textureRenderer!!.draw(texId, transformMatrix, mvpMatrix, filterType)
+                        renderVisual(clip, texId, srcW, srcH, isOES = true, stMatrix = stMatrix)
                         frameRendered = true
-                        outputAvailable = false // We got our frame, stop draining
+                        outputAvailable = false
                     } else {
                         decoder.releaseOutputBuffer(outBufIdx, false)
                     }
@@ -606,7 +475,6 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         GLES20.glGenTextures(1, textureHandle, 0)
         if (textureHandle[0] != 0) {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureHandle[0])
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureHandle[0])
             GLES20.glTexParameteri(
                     GLES20.GL_TEXTURE_2D,
                     GLES20.GL_TEXTURE_MIN_FILTER,
@@ -636,13 +504,11 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             texId: Int,
             width: Int,
             height: Int,
-            isOES: Boolean
+            isOES: Boolean,
+            stMatrix: FloatArray? = null
     ) {
-
         var videoAspect = width.toFloat() / height.toFloat()
 
-        // CORRECTION: If the USER applies a rotation (clip.rotation) of 90 or 270,
-        // we must effectively swap the aspect ratio *again* for the fit calculation.
         val userRotation = kotlin.math.round(clip.rotation).toInt() % 360
         if (userRotation == 90 || userRotation == 270) {
             videoAspect = 1f / videoAspect
@@ -651,12 +517,12 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
 
         Matrix.setIdentityM(mvpMatrix, 0)
 
-        // 1. Transform
+        // TRS: Translate → Rotate → Scale
         Matrix.translateM(mvpMatrix, 0, clip.x, clip.y, 0f)
         Matrix.rotateM(mvpMatrix, 0, clip.rotation, 0f, 0f, 1f)
         Matrix.scaleM(mvpMatrix, 0, clip.scale, clip.scale, 1f)
 
-        // 2. Aspect Correction
+        // Aspect ratio correction based on resizeMode
         var scaleX = 1f
         var scaleY = 1f
 
@@ -681,7 +547,7 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             }
         }
 
-        // Swap if rotated
+        // Swap scale factors if user rotation is 90/270 (content is rotated relative to screen)
         if (userRotation == 90 || userRotation == 270) {
             val temp = scaleX
             scaleX = scaleY
@@ -690,21 +556,17 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
 
         Matrix.scaleM(mvpMatrix, 0, scaleX, scaleY, 1f)
 
-        var filterType = 0
-        if (clip.filter == "grayscale") filterType = 1
-        else if (clip.filter == "sepia") filterType = 2
+        val filterType = when (clip.filter) {
+            "grayscale" -> 1
+            "sepia" -> 2
+            "vignette" -> 3
+            "invert" -> 4
+            else -> 0
+        }
 
         if (isOES) {
-            // For Video, we rely on the caller to have updated the texture and setup OES draw
-            // But to reuse logic:
-            // TextureRenderer.draw takes separate args.
-            // We can refactor `textureRenderer.draw` to take MVP matrix only?
-            // Or passing in components.
-            // Actually `draw` takes MVP.
-            // textureRenderer!!.draw(texId, null, mvpMatrix, filterType)
-            // But where is STMatrix? Video needs it.
+            textureRenderer!!.draw(texId, stMatrix, mvpMatrix, filterType, clip.filterIntensity)
         } else {
-            // For Image (2D)
             textureRenderer!!.draw2D(texId, mvpMatrix, filterType)
         }
     }
@@ -730,6 +592,7 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         surfaceTextures.clear()
 
         videoTextureIds.clear()
+        videoMetadata.clear()
         bitmapTextures.clear()
         overlayTextureCache.clear()
 

@@ -17,6 +17,23 @@ class CompositionClipRecord : Record {
         @Field val scale: Double = 1.0
         @Field val rotation: Double = 0.0
         @Field val volume: Double = 1.0
+        // Source trimming
+        @Field val clipStart: Double = 0.0
+        @Field val clipEnd: Double = -1.0
+        // Visual
+        @Field val opacity: Double = 1.0
+        @Field val filterIntensity: Double = 1.0
+        // Audio fade
+        @Field val fadeInDuration: Double = 0.0
+        @Field val fadeOutDuration: Double = 0.0
+        // Text/overlay styling
+        @Field val text: String? = null
+        @Field val textColor: String = "#FFFFFF"
+        @Field val textFontSize: Double = 64.0
+        @Field val textBackgroundColor: String? = null
+        @Field val textShadowColor: String? = null
+        @Field val textStrokeColor: String? = null
+        @Field val textStrokeWidth: Double = 0.0
 }
 
 class CompositionTrackRecord : Record {
@@ -35,6 +52,20 @@ class CompositionConfigRecord : Record {
         @Field val enablePassthrough: Boolean = true
         @Field val videoProfile: String = "baseline" // baseline, main, high
         @Field val tracks: List<CompositionTrackRecord> = emptyList()
+}
+
+class CompressVideoRecord : Record {
+    @Field val inputUri: String = ""
+    @Field val outputUri: String = ""
+    @Field val width: Int? = null
+    @Field val height: Int? = null
+    @Field val maxWidth: Int? = null
+    @Field val maxHeight: Int? = null
+    @Field val bitrate: Int? = null
+    @Field val frameRate: Int? = null
+    @Field val audioBitrate: Int? = null
+    @Field val codec: String = "h264"
+    @Field val quality: String? = null  // "low" | "medium" | "high" — resolved in JS
 }
 
 class MediaEngineModule : Module() {
@@ -268,6 +299,9 @@ class MediaEngineModule : Module() {
                                                                 "text" ->
                                                                         CompositeVideoComposer
                                                                                 .TrackType.TEXT
+                                                                "image" ->
+                                                                        CompositeVideoComposer
+                                                                                .TrackType.IMAGE
                                                                 else ->
                                                                         CompositeVideoComposer
                                                                                 .TrackType.VIDEO
@@ -277,29 +311,29 @@ class MediaEngineModule : Module() {
                                                         trackRecord.clips.map { clipRecord ->
                                                                 CompositeVideoComposer.Clip(
                                                                         uri = clipRecord.uri,
-                                                                        startTime =
-                                                                                clipRecord
-                                                                                        .startTime,
-                                                                        duration =
-                                                                                clipRecord.duration,
+                                                                        startTime = clipRecord.startTime,
+                                                                        duration = clipRecord.duration,
                                                                         filter = clipRecord.filter,
-                                                                        transition =
-                                                                                clipRecord
-                                                                                        .transition,
-                                                                        resizeMode =
-                                                                                clipRecord
-                                                                                        .resizeMode,
+                                                                        transition = clipRecord.transition,
+                                                                        resizeMode = clipRecord.resizeMode,
                                                                         x = clipRecord.x.toFloat(),
                                                                         y = clipRecord.y.toFloat(),
-                                                                        scale =
-                                                                                clipRecord.scale
-                                                                                        .toFloat(),
-                                                                        rotation =
-                                                                                clipRecord.rotation
-                                                                                        .toFloat(),
-                                                                        volume =
-                                                                                clipRecord.volume
-                                                                                        .toFloat()
+                                                                        scale = clipRecord.scale.toFloat(),
+                                                                        rotation = clipRecord.rotation.toFloat(),
+                                                                        volume = clipRecord.volume.toFloat(),
+                                                                        clipStart = clipRecord.clipStart,
+                                                                        clipEnd = clipRecord.clipEnd,
+                                                                        opacity = clipRecord.opacity.toFloat(),
+                                                                        filterIntensity = clipRecord.filterIntensity.toFloat(),
+                                                                        fadeInDuration = clipRecord.fadeInDuration,
+                                                                        fadeOutDuration = clipRecord.fadeOutDuration,
+                                                                        text = clipRecord.text,
+                                                                        textColor = clipRecord.textColor,
+                                                                        textFontSize = clipRecord.textFontSize.toFloat(),
+                                                                        textBackgroundColor = clipRecord.textBackgroundColor,
+                                                                        textShadowColor = clipRecord.textShadowColor,
+                                                                        textStrokeColor = clipRecord.textStrokeColor,
+                                                                        textStrokeWidth = clipRecord.textStrokeWidth.toFloat()
                                                                 )
                                                         }
                                                 CompositeVideoComposer.Track(type, clips)
@@ -467,6 +501,72 @@ class MediaEngineModule : Module() {
                                 composer.start()
                                 return@AsyncFunction outputUri
                         }
+                }
+
+                // MARK: - Video Compression
+                AsyncFunction("compressVideo") { config: CompressVideoRecord ->
+                    try {
+                        if (config.inputUri.isEmpty()) throw Exception("Missing inputUri")
+                        if (config.outputUri.isEmpty()) throw Exception("Missing outputUri")
+
+                        val reactContext = appContext.reactContext
+                            ?: throw Exception("React Context unavailable")
+
+                        // Resolve bitrate from explicit value or quality string
+                        val bitrate = config.bitrate ?: when (config.quality) {
+                            "low" -> 1_000_000
+                            "high" -> 8_000_000
+                            else -> 4_000_000
+                        }
+                        val audioBitrate = config.audioBitrate ?: 128_000
+
+                        // Resolve output dimensions, respecting maxWidth/maxHeight constraints
+                        var width = config.width
+                        var height = config.height
+
+                        if (config.maxWidth != null || config.maxHeight != null) {
+                            // Probe source to calculate constrained dimensions
+                            val sourceExtractor = android.media.MediaExtractor()
+                            sourceExtractor.setDataSource(reactContext, android.net.Uri.parse(config.inputUri), null)
+                            var srcW = 1280; var srcH = 720
+                            for (i in 0 until sourceExtractor.trackCount) {
+                                val f = sourceExtractor.getTrackFormat(i)
+                                if (f.getString(android.media.MediaFormat.KEY_MIME)?.startsWith("video/") == true) {
+                                    if (f.containsKey(android.media.MediaFormat.KEY_WIDTH)) srcW = f.getInteger(android.media.MediaFormat.KEY_WIDTH)
+                                    if (f.containsKey(android.media.MediaFormat.KEY_HEIGHT)) srcH = f.getInteger(android.media.MediaFormat.KEY_HEIGHT)
+                                    break
+                                }
+                            }
+                            sourceExtractor.release()
+
+                            if (width == null && height == null) {
+                                val maxW = config.maxWidth ?: Int.MAX_VALUE
+                                val maxH = config.maxHeight ?: Int.MAX_VALUE
+                                if (srcW > maxW || srcH > maxH) {
+                                    val scale = minOf(maxW.toFloat() / srcW, maxH.toFloat() / srcH)
+                                    width = (srcW * scale).toInt()
+                                    height = (srcH * scale).toInt()
+                                }
+                            }
+                        }
+
+                        val compressConfig = VideoCompressor.CompressConfig(
+                            inputUri = config.inputUri,
+                            outputUri = config.outputUri,
+                            width = width,
+                            height = height,
+                            bitrate = bitrate,
+                            frameRate = config.frameRate,
+                            audioBitrate = audioBitrate,
+                            codec = config.codec,
+                            copyAudio = true
+                        )
+
+                        VideoCompressor(reactContext, compressConfig).compress()
+                        return@AsyncFunction config.outputUri
+                    } catch (e: Exception) {
+                        throw Exception("Video compression failed: ${e.message}")
+                    }
                 }
         }
 

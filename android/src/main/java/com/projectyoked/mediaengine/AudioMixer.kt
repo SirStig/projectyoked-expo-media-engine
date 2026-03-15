@@ -158,11 +158,13 @@ class AudioMixer(
                         val byteBuf = ByteBuffer.allocate(shortBuffer.size * 2)
                         byteBuf.order(java.nio.ByteOrder.LITTLE_ENDIAN)
                         byteBuf.asShortBuffer().put(shortBuffer)
-                        inputBuf.put(byteBuf.array())
+                        val audioBytes = byteBuf.array()
+                        val bytesToWrite = minOf(audioBytes.size, inputBuf.remaining())
+                        inputBuf.put(audioBytes, 0, bytesToWrite)
                         encoder.queueInputBuffer(
                                 inputIndex,
                                 0,
-                                inputBuf.capacity(),
+                                bytesToWrite,
                                 currentTimeUs,
                                 0
                         )
@@ -220,15 +222,9 @@ class AudioMixer(
                 }
             }
         } finally {
-            try {
-                audioClips.forEach { it.release() }
-                encoder.stop()
-                encoder.release()
-                if (muxerStarted) muxer.stop()
-                muxer.release()
-            } catch (e: Exception) {
-                Log.e(TAG, "Cleanup error", e)
-            }
+            try { audioClips.forEach { it.release() } } catch (e: Exception) { Log.w(TAG, "Error releasing audio clips", e) }
+            try { encoder.stop(); encoder.release() } catch (e: Exception) { Log.w(TAG, "Error stopping encoder", e) }
+            try { if (muxerStarted) muxer.stop(); muxer.release() } catch (e: Exception) { Log.w(TAG, "Error stopping muxer", e) }
         }
 
         Log.d(TAG, "Mix Complete. File: $outputPath")
@@ -237,7 +233,7 @@ class AudioMixer(
             // Delete temp file if empty
             try {
                 File(outputPath).delete()
-            } catch (e: Exception) {}
+            } catch (e: Exception) { Log.w(TAG, "Failed to delete empty temp audio file", e) }
             return null
         }
 
@@ -319,12 +315,22 @@ class AudioMixer(
             return timeUs in startUs..endUs
         }
 
+        private fun computeVolume(timelineTimeUs: Long): Float {
+            val pos = timelineTimeUs - (clip.startTime * 1_000_000).toLong()
+            val endUs = (clip.duration * 1_000_000).toLong()
+            val fadeInUs = (clip.fadeInDuration * 1_000_000).toLong()
+            val fadeOutUs = (clip.fadeOutDuration * 1_000_000).toLong()
+            val fadeIn = if (fadeInUs > 0) (pos.toFloat() / fadeInUs).coerceIn(0f, 1f) else 1f
+            val fadeOut = if (fadeOutUs > 0) ((endUs - pos).toFloat() / fadeOutUs).coerceIn(0f, 1f) else 1f
+            return clip.volume * fadeIn * fadeOut
+        }
+
         fun readSamples(count: Int, targetRate: Int, timelineTimeUs: Long): FloatArray {
             if (decoder == null) return FloatArray(count * 2)
 
             val output = FloatArray(count * 2)
             var outIdx = 0
-            val vol = clip.volume
+            val vol = computeVolume(timelineTimeUs)
             val step = inputSampleRate.toDouble() / TARGET_SAMPLE_RATE.toDouble()
 
             try {

@@ -52,7 +52,8 @@ class CompositeVideoComposer(private val context: Context, private val config: C
     enum class TrackType {
         VIDEO,
         AUDIO,
-        TEXT
+        TEXT,
+        IMAGE
     }
 
     data class Clip(
@@ -67,7 +68,24 @@ class CompositeVideoComposer(private val context: Context, private val config: C
             val y: Float = 0f, // Normalized center -1..1
             val scale: Float = 1f,
             val rotation: Float = 0f, // Degrees
-            val volume: Float = 1.0f
+            val volume: Float = 1.0f,
+            // Source trimming
+            val clipStart: Double = 0.0,
+            val clipEnd: Double = -1.0,  // -1 = use full source
+            // Visual
+            val opacity: Float = 1.0f,
+            val filterIntensity: Float = 1.0f,
+            // Audio fade envelope
+            val fadeInDuration: Double = 0.0,
+            val fadeOutDuration: Double = 0.0,
+            // Text/overlay content
+            val text: String? = null,
+            val textColor: String = "#FFFFFF",
+            val textFontSize: Float = 64f,
+            val textBackgroundColor: String? = null,
+            val textShadowColor: String? = null,
+            val textStrokeColor: String? = null,
+            val textStrokeWidth: Float = 0f
     )
 
     // GL Components
@@ -470,12 +488,14 @@ class CompositeVideoComposer(private val context: Context, private val config: C
         val clips = config.tracks.flatMap { it.clips }
         if (clips.size < 2) return false // 1 clip is handled by standard Passthrough
 
-        // 2. Check for effects
+        // 2. Check for effects or source trimming
         if (clips.any {
                     it.filter != null ||
                             it.resizeMode != "cover" ||
                             it.scale != 1f ||
-                            it.rotation != 0f
+                            it.rotation != 0f ||
+                            it.clipStart > 0.0 ||
+                            it.clipEnd > 0.0
                 }
         )
                 return false
@@ -502,12 +522,10 @@ class CompositeVideoComposer(private val context: Context, private val config: C
 
         // 3. Check for modifiers on the clip
         if (clip.filter != null) return false
-        if (clip.rotation != 0f)
-                return false // Rotation usually requires re-encoding unless we edit metadata
-        // (mp4parser)
-        // STRICTER CHECK: Resize must be cover mostly, and scale 1f.
+        if (clip.rotation != 0f) return false
         if (clip.scale != 1f) return false
-        // Resize mode is irrelevant if we are passthrough (we take source as is)
+        // Source-level trimming: clipStart/clipEnd requires re-encoding
+        if (clip.clipStart > 0.0 || clip.clipEnd > 0.0) return false
 
         // 4. Trimming Check
         // If the user requests a start time mismatch or a specific short duration, we must NOT

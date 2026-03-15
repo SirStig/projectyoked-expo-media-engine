@@ -8,6 +8,13 @@ try {
     console.warn('MediaEngine native module not found. Rebuild required.');
 }
 
+function makeMediaEngineError(e, code) {
+    const err = new Error(e?.message ?? String(e));
+    err.code = code;
+    err.platform = 'native';
+    return err;
+}
+
 /**
  * Native Media Engine
  */
@@ -17,7 +24,11 @@ export default {
      */
     async extractAudio(videoUri, outputUri) {
         if (!MediaEngine) throw new Error("MediaEngine unavailable");
-        return await MediaEngine.extractAudio(videoUri, outputUri);
+        try {
+            return await MediaEngine.extractAudio(videoUri, outputUri);
+        } catch (e) {
+            throw makeMediaEngineError(e, 'EXTRACT_AUDIO_FAILED');
+        }
     },
 
     /**
@@ -45,7 +56,11 @@ export default {
         }
         if (!bitrate) bitrate = 2000000; // Legacy Default 2Mbps
 
-        return await MediaEngine.exportComposition({ ...config, bitrate });
+        try {
+            return await MediaEngine.exportComposition({ ...config, bitrate });
+        } catch (e) {
+            throw makeMediaEngineError(e, 'EXPORT_COMPOSITION_FAILED');
+        }
     },
 
     /**
@@ -66,7 +81,11 @@ export default {
         if (!bitrate) bitrate = 4000000; // Default to Medium (4Mbps)
 
         const finalConfig = { ...config, bitrate };
-        return await MediaEngine.composeCompositeVideo(finalConfig);
+        try {
+            return await MediaEngine.composeCompositeVideo(finalConfig);
+        } catch (e) {
+            throw makeMediaEngineError(e, 'COMPOSE_VIDEO_FAILED');
+        }
     },
 
     isAvailable() {
@@ -78,6 +97,35 @@ export default {
      */
     async stitchVideos(videoPaths, outputUri) {
         if (!MediaEngine) throw new Error("MediaEngine unavailable");
-        return await MediaEngine.stitchVideos(videoPaths, outputUri);
-    }
+        try {
+            return await MediaEngine.stitchVideos(videoPaths, outputUri);
+        } catch (e) {
+            throw makeMediaEngineError(e, 'STITCH_VIDEOS_FAILED');
+        }
+    },
+
+    /**
+     * Compress a video (reduce file size / resolution / bitrate).
+     * Replaces react-native-compressor for post-render use.
+     */
+    async compressVideo(config) {
+        if (!MediaEngine) throw new Error("MediaEngine unavailable");
+
+        // Resolve quality → bitrate if explicit bitrate not set
+        let bitrate = config.bitrate;
+        if (!bitrate && config.quality) {
+            switch (config.quality) {
+                case 'low':  bitrate = 1_000_000; break;
+                case 'medium': bitrate = 4_000_000; break;
+                case 'high': bitrate = 8_000_000; break;
+            }
+        }
+
+        const finalConfig = { ...config, ...(bitrate ? { bitrate } : {}) };
+        try {
+            return await MediaEngine.compressVideo(finalConfig);
+        } catch (e) {
+            throw makeMediaEngineError(e, 'COMPRESS_VIDEO_FAILED');
+        }
+    },
 };

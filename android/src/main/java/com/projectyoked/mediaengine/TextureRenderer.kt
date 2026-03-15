@@ -29,6 +29,7 @@ class TextureRenderer {
     private val mTriangleVertices: FloatBuffer
     private val mMVPMatrix = FloatArray(16)
     private val mSTMatrix = FloatArray(16)
+    private val mIdentityMatrix = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
     private var mProgram = 0
     private var mTextureID = -12345
     private var muMVPMatrixHandle = 0
@@ -36,6 +37,7 @@ class TextureRenderer {
     private var maPositionHandle = 0
     private var maTextureHandle = 0
     private var mFilterTypeHandle = 0
+    private var mFilterIntensityHandle = 0
 
     // simple vertex shader
     private val mVertexShader = """
@@ -50,26 +52,33 @@ class TextureRenderer {
         }
     """
 
-    // fragment shader with external texture support and simple filters
+    // fragment shader with external texture support and color filters
     private val mFragmentShader = """
         #extension GL_OES_EGL_image_external : require
         precision highp float;
         varying vec2 vTextureCoord;
         uniform samplerExternalOES sTexture;
-        uniform int uFilterType; // 0=None, 1=Grayscale, 2=Sepia
-        
+        uniform int uFilterType; // 0=None, 1=Grayscale, 2=Sepia, 3=Vignette, 4=Invert
+        uniform float uFilterIntensity; // 0..1
+
         void main() {
             vec4 color = texture2D(sTexture, vTextureCoord);
-            
+
             if (uFilterType == 1) { // Grayscale
-                // Rec. 709 Luma coefficients
                 float gray = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-                gl_FragColor = vec4(gray, gray, gray, color.a);
+                gl_FragColor = vec4(mix(color.rgb, vec3(gray), uFilterIntensity), color.a);
             } else if (uFilterType == 2) { // Sepia
                 float r = dot(color.rgb, vec3(0.393, 0.769, 0.189));
                 float g = dot(color.rgb, vec3(0.349, 0.686, 0.168));
                 float b = dot(color.rgb, vec3(0.272, 0.534, 0.131));
-                gl_FragColor = vec4(min(r, 1.0), min(g, 1.0), min(b, 1.0), color.a);
+                vec3 sepia = vec3(min(r, 1.0), min(g, 1.0), min(b, 1.0));
+                gl_FragColor = vec4(mix(color.rgb, sepia, uFilterIntensity), color.a);
+            } else if (uFilterType == 3) { // Vignette
+                float d = distance(vTextureCoord, vec2(0.5));
+                float v = 1.0 - smoothstep(0.3, 0.75, d) * uFilterIntensity;
+                gl_FragColor = vec4(color.rgb * v, color.a);
+            } else if (uFilterType == 4) { // Invert
+                gl_FragColor = vec4(mix(color.rgb, vec3(1.0) - color.rgb, uFilterIntensity), color.a);
             } else {
                 gl_FragColor = color;
             }
@@ -94,7 +103,7 @@ class TextureRenderer {
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID)
         
         // Needed for OES textures
-        GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST.toFloat())
+        GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR.toFloat())
         GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR.toFloat())
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
@@ -130,6 +139,7 @@ class TextureRenderer {
         muMVPMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uMVPMatrix")
         muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uSTMatrix")
         mFilterTypeHandle = GLES20.glGetUniformLocation(mProgram, "uFilterType")
+        mFilterIntensityHandle = GLES20.glGetUniformLocation(mProgram, "uFilterIntensity")
 
         // 2. Init 2D Program (Overlay)
         mProgram2D = createProgram(mVertexShader, mFragmentShader2D)
@@ -142,7 +152,7 @@ class TextureRenderer {
         // Actually, let's just reuse the vertex shader and bind identity to uSTMatrix.
     }
 
-    fun draw(textureId: Int, stMatrix: FloatArray?, mvpMatrix: FloatArray?, filterType: Int) {
+    fun draw(textureId: Int, stMatrix: FloatArray?, mvpMatrix: FloatArray?, filterType: Int, filterIntensity: Float = 1.0f) {
         checkGlError("onDrawFrame start")
         GLES20.glUseProgram(mProgram)
         checkGlError("glUseProgram")
@@ -169,14 +179,11 @@ class TextureRenderer {
             GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mMVPMatrix, 0)
         }
         
-        // Use ST Matrix from SurfaceTexture if provided, otherwise identity
-        if (stMatrix != null) {
-            GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, stMatrix, 0)
-        } else {
-             GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, mMVPMatrix, 0)
-        }
+        // Use ST Matrix from SurfaceTexture if provided, otherwise use a clean identity matrix
+        GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, stMatrix ?: mIdentityMatrix, 0)
         
         GLES20.glUniform1i(mFilterTypeHandle, filterType)
+        GLES20.glUniform1f(mFilterIntensityHandle, filterIntensity)
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         checkGlError("glDrawArrays")
