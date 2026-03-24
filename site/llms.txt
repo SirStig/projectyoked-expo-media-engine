@@ -1,0 +1,393 @@
+# @projectyoked/expo-media-engine
+
+> Open-source Expo native module for hardware-accelerated video composition and editing on iOS and Android. MIT licensed. Maintained by Project Yoked LLC.
+
+## Overview
+
+expo-media-engine is an Expo native module that provides:
+- Multi-track video composition (video, audio, text, image tracks)
+- Real-time preview engine (~30 fps, matches export output)
+- 9 color filters, 8 video transitions
+- Per-clip transforms: position, scale, rotation, opacity, speed, trim
+- Audio mixing with volume envelopes and keyframe automation
+- Text/emoji overlays with full styling (font, shadow, stroke, background)
+- Image overlay tracks
+- Video stitching (concatenation)
+- Video compression (H.264/H.265)
+- Waveform generation
+- Audio extraction
+
+Built on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android).
+
+## Install
+
+```
+npm install @projectyoked/expo-media-engine@alpha
+npx expo prebuild
+```
+
+Requirements: Expo SDK 49+, expo-modules-core 1.0.0+, iOS 13.4+, Android API 21+, React Native 0.64+. Requires a development build — Expo Go is not supported.
+
+## npm
+
+- Package: @projectyoked/expo-media-engine
+- Alpha tag: npm install @projectyoked/expo-media-engine@alpha
+- Stable tag: npm install @projectyoked/expo-media-engine
+- npm page: https://www.npmjs.com/package/@projectyoked/expo-media-engine
+
+## GitHub
+
+https://github.com/SirStig/projectyoked-expo-media-engine
+
+---
+
+## Core API
+
+### composeCompositeVideo(config)
+
+Primary export function. Takes a CompositionConfig, renders it to a video file.
+
+Returns: Promise<string> — the output file URI.
+
+Config fields:
+- outputUri (string, required) — destination file path (file://...)
+- width (number) — output width in pixels, inferred from source if omitted
+- height (number) — output height in pixels, inferred from source if omitted
+- frameRate (number) — output frame rate, inferred from source if omitted
+- quality ('low'|'medium'|'high') — low=1Mbps, medium=4Mbps, high=10Mbps
+- videoBitrate (number) — explicit bitrate in bps, overrides quality
+- audioBitrate (number) — default 128000
+- videoProfile ('baseline'|'main'|'high') — H.264 profile, default baseline
+- enablePassthrough (boolean) — skip re-encoding when possible, default true
+- tracks (CompositeTrack[]) — ordered array of tracks, bottom-most first
+
+Example:
+```js
+import MediaEngine from '@projectyoked/expo-media-engine';
+
+const output = await MediaEngine.composeCompositeVideo({
+  outputUri: 'file:///output.mp4',
+  width: 1080, height: 1920, frameRate: 30, quality: 'high',
+  tracks: [
+    {
+      type: 'video',
+      clips: [
+        { uri: 'file:///clip-a.mp4', startTime: 0, duration: 5, filter: 'warm' },
+        { uri: 'file:///clip-b.mp4', startTime: 4, duration: 5, transition: 'crossfade', transitionDuration: 1 },
+      ],
+    },
+    {
+      type: 'audio',
+      clips: [{ uri: 'file:///music.mp3', startTime: 0, duration: 9, volume: 0.8, fadeOutDuration: 1.5 }],
+    },
+    {
+      type: 'text',
+      clips: [{ text: 'Hello!', startTime: 0.5, duration: 3, x: 0.5, y: 0.15, textStyle: { fontSize: 52, color: '#FFFFFF', fontWeight: 'bold' } }],
+    },
+  ],
+});
+```
+
+---
+
+## Tracks
+
+Track types:
+- 'video' — video source clips with optional filters, transitions, transforms
+- 'audio' — audio source clips with volume, fade controls
+- 'text' — timed text/emoji overlays
+- 'image' — timed image overlays
+
+---
+
+## Clip Properties (all clip types)
+
+- uri (string) — file URI, not required for text clips
+- startTime (number) — when clip appears on timeline (seconds)
+- duration (number) — how long the clip plays (seconds)
+- x (number) — normalized horizontal center 0–1, default centered
+- y (number) — normalized vertical center 0–1, default centered
+- scale (number) — size multiplier, default 1.0
+- rotation (number) — degrees clockwise, default 0
+- opacity (number) — 0–1, default 1.0
+- resizeMode ('cover'|'contain'|'stretch') — default 'cover'
+- clipStart (number) — trim start within source (seconds), default 0
+- clipEnd (number) — trim end within source, -1 = full source, default -1
+- speed (number) — playback multiplier, 0.5=slow-mo, 2.0=fast-forward, default 1.0
+- filter (FilterType) — see Filters section
+- filterIntensity (number) — filter strength 0–1, default 1.0
+- transition (TransitionType) — transition at clip boundary, see Transitions
+- transitionDuration (number) — transition window in seconds, clips must overlap
+- volume (number) — audio volume 0–1, default 1.0
+- fadeInDuration (number) — audio fade in seconds, default 0
+- fadeOutDuration (number) — audio fade out seconds, default 0
+- volumeEnvelope (VolumeEnvelope) — keyframe volume automation
+- animations (ClipAnimations) — keyframe x/y/scale/rotation/opacity
+
+---
+
+## Filters
+
+Set `filter` on any video or image clip. All filters work on iOS and Android.
+
+- 'grayscale' — full desaturation
+- 'sepia' — warm brown tone
+- 'vignette' — dark edge falloff
+- 'invert' — color inversion
+- 'brightness' — luminance boost or reduction
+- 'contrast' — contrast adjustment
+- 'saturation' — color intensity
+- 'warm' — red/yellow shift
+- 'cool' — blue shift
+
+Use `filterIntensity` (0–1) to control strength.
+
+---
+
+## Transitions
+
+Set `transition` on a clip to apply a transition at its end boundary. Clips must overlap in time by at least `transitionDuration` seconds.
+
+- 'crossfade' — opacity blend between clips
+- 'fade' — fade to black, then fade in
+- 'slide-left' — incoming slides in from the right
+- 'slide-right' — incoming slides in from the left
+- 'slide-up' — incoming slides in from the bottom
+- 'slide-down' — incoming slides in from the top
+- 'zoom-in' — outgoing zooms out while incoming zooms to normal
+- 'zoom-out' — outgoing shrinks, incoming enters at full size
+
+---
+
+## Text Styling
+
+Text clips accept a `textStyle` object with these optional fields:
+
+- color (string) — hex color, default '#FFFFFF'
+- fontSize (number) — points, default 40
+- fontWeight ('normal'|'bold') — default 'normal'
+- backgroundColor (string) — pill background color
+- backgroundPadding (number) — padding in px, default 8
+- shadowColor (string) — drop shadow color
+- shadowRadius (number) — shadow blur radius, default 0
+- shadowOffsetX (number) — shadow horizontal offset, default 0
+- shadowOffsetY (number) — shadow vertical offset, default 0
+- strokeColor (string) — text outline color
+- strokeWidth (number) — text outline width, default 0
+
+---
+
+## Audio & Volume Envelopes
+
+Per-clip audio controls:
+- volume — flat multiplier 0–1
+- fadeInDuration / fadeOutDuration — linear ramp at start/end
+- volumeEnvelope.keyframes — time-based automation (overrides fade when provided)
+
+Keyframe example:
+```js
+volumeEnvelope: {
+  keyframes: [
+    { time: 0,   volume: 0 },
+    { time: 1,   volume: 1 },
+    { time: 8,   volume: 1 },
+    { time: 9.5, volume: 0 },
+  ],
+}
+```
+
+---
+
+## Preview Engine
+
+The preview system is designed for a CapCut-style layered editor.
+
+### MediaEnginePreview
+
+A native Expo view that renders video/audio at ~30 fps using the same pipeline as export.
+
+Import:
+```js
+import { MediaEnginePreview } from '@projectyoked/expo-media-engine';
+```
+
+Props:
+- config (CompositionConfig, required) — the composition to preview
+- isPlaying (boolean) — play/pause, default false
+- muted (boolean) — mute audio, default false
+- currentTime (number) — seek position in seconds (for scrubbing while paused)
+- style (ViewStyle) — standard RN style prop
+
+Events:
+- onLoad({ duration }) — fired when engine is ready
+- onTimeUpdate({ currentTime }) — fires at ~30 fps during playback
+- onPlaybackEnded({}) — fired when playback reaches end
+- onError({ message }) — fired on fatal errors
+
+Ref:
+- seekTo(seconds) — imperative seek
+
+### useCompositionOverlays(config, currentTime)
+
+Returns active text and image clips at currentTime with all transforms resolved. Memoized.
+
+Returns ActiveOverlay[] with fields:
+- id (string) — stable key "track-{n}-clip-{n}"
+- type ('text'|'image')
+- x, y (number) — resolved center 0–1
+- scale (number) — resolved scale multiplier
+- rotation (number) — resolved rotation in degrees
+- opacity (number) — resolved opacity 0–1
+- localTime (number) — seconds since clip startTime
+- text (string) — text content (text clips)
+- uri (string) — image URI (image clips)
+- color, fontSize, fontWeight, shadowColor, strokeColor, etc. — resolved text style fields
+
+Usage pattern:
+```js
+import { MediaEnginePreview, useCompositionOverlays } from '@projectyoked/expo-media-engine';
+
+function Editor({ config }) {
+  const [time, setTime] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const overlays = useCompositionOverlays(config, time);
+
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <MediaEnginePreview
+        config={config}
+        isPlaying={playing}
+        onTimeUpdate={e => setTime(e.nativeEvent.currentTime)}
+        style={StyleSheet.absoluteFill}
+      />
+      {overlays.map(o => <InteractiveOverlay key={o.id} overlay={o} />)}
+    </View>
+  );
+}
+```
+
+---
+
+## stitchVideos(uris, outputUri)
+
+Concatenates videos end-to-end. Fast passthrough path where possible; falls back to transcoding if sources are incompatible.
+
+```js
+await MediaEngine.stitchVideos(
+  ['file:///clip1.mp4', 'file:///clip2.mp4'],
+  'file:///output.mp4'
+);
+```
+
+---
+
+## compressVideo(config)
+
+Re-encodes a video at a lower bitrate or resolution.
+
+Config fields:
+- inputUri (string, required)
+- outputUri (string, required)
+- quality ('low'|'medium'|'high') — low=1Mbps, medium=4Mbps, high=8Mbps
+- bitrate (number) — explicit bps, overrides quality
+- audioBitrate (number) — default 128000
+- width / height (number) — explicit output dimensions
+- maxWidth / maxHeight (number) — constrain proportionally
+- frameRate (number)
+- codec ('h264'|'h265') — Android only, default 'h264'
+
+---
+
+## getWaveform(uri, samples?)
+
+Returns normalized RMS amplitude array (number[], values 0–1) for waveform visualization.
+
+```js
+const amplitudes = await MediaEngine.getWaveform('file:///audio.mp3', 200);
+```
+
+---
+
+## extractAudio(videoUri, outputUri)
+
+Extracts audio track from a video file to .m4a.
+
+```js
+await MediaEngine.extractAudio('file:///video.mp4', 'file:///audio.m4a');
+```
+
+---
+
+## isAvailable()
+
+Returns true if the native module is linked. Use for graceful fallbacks in Storybook or web.
+
+```js
+if (!MediaEngine.isAvailable()) {
+  console.warn('Native module not linked — rebuild the dev client.');
+}
+```
+
+---
+
+## TypeScript Types
+
+All types ship with the package in src/index.d.ts:
+
+- CompositionConfig
+- CompositeTrack
+- CompositeClip
+- TextStyle
+- FilterType — union of all filter string literals
+- TransitionType — union of all transition string literals
+- VolumeEnvelope
+- VolumeKeyframe
+- ClipAnimations
+- KeyframeValue
+- MediaEnginePreviewProps
+- MediaEnginePreviewRef
+- ActiveOverlay
+- CompressVideoConfig
+
+---
+
+## Architecture
+
+JavaScript bridge (src/):
+- src/index.js — loads native module via requireNativeModule('MediaEngine'), exposes 6 async functions, resolves quality strings to bitrates
+- src/index.d.ts — TypeScript definitions
+
+iOS (ios/, Swift + AVFoundation):
+- MediaEngineModule.swift — all async functions including composeCompositeVideo with CATextLayer overlays, AVMutableComposition, smart passthrough detection
+- MediaEnginePreviewView.swift — ExpoView for live preview using AVPlayer + AVPlayerLayer
+- VideoStitcher.swift — concatenates via AVMutableComposition with passthrough export
+
+Android (android/, Kotlin + MediaCodec + OpenGL ES 2.0):
+- MediaEngineModule.kt — Expo module entry, marshals JS data through Record types
+- CompositeVideoComposer.kt — OpenGL ES pipeline: MediaExtractor → MediaCodec decode → SurfaceTexture → OpenGL → EGLSurface → MediaCodec encode → MediaMuxer
+- RenderEngine.kt — decoupled renderer for live preview, manages TextureRenderer pool
+- MediaEnginePreviewView.kt — ExpoView with TextureView for preview
+- PreviewEngine.kt — EGL setup, HandlerThread render loop at 33ms intervals
+- VideoStitcher.kt — fast path via mp4parser (isoparser), falls back to transcoding
+- WaveformGenerator.kt — MediaCodec decode → RMS amplitude → normalized array
+- AudioMixer.kt — audio track mixing
+- TextureRenderer.kt — OpenGL ES 2.0 rendering with MVP matrices
+
+Key design decisions:
+- Smart passthrough: single-clip compositions with no transforms skip re-encoding
+- Feed-and-drain loop: Android codec synchronization to keep decoder/encoder in sync
+- Fallback transcoding: VideoStitcher tries fast mp4parser first
+- Quality resolution in JS: low→1Mbps, medium→4Mbps, high→10Mbps before native call
+- Hybrid preview: native renders video+filters, JS hook feeds Skia for interactive overlays
+
+---
+
+## Stable API (0.1.x, npm latest)
+
+The stable line provides basic single-video export:
+- isAvailable() — checks native module linkage
+- extractAudio(videoUri, outputUri) — pulls audio to .m4a
+- getWaveform(audioUri, samples?) — normalized RMS amplitude array
+- exportComposition(config) — single-video export with text/emoji overlays and background music
+
+For the full feature set, use the alpha tag.

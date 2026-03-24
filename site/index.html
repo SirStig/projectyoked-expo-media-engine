@@ -1,136 +1,185 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Expo Media Engine — native video composition for Expo | Project Yoked LLC</title>
-  <meta name="description" content="Open-source Expo native module for hardware-accelerated video composition, real-time preview, filters, transitions, audio mixing, and more on iOS and Android. Maintained by Project Yoked LLC.">
-  <meta name="keywords" content="Expo, React Native, video composition, AVFoundation, MediaCodec, Project Yoked, Joshua Kac, expo-media-engine">
+  <title>Expo Media Engine — native video composition for Expo</title>
+  <meta name="description" content="Open-source Expo native module for hardware-accelerated video composition, real-time preview, 9 filters, 8 transitions, and full audio mixing on iOS and Android.">
+  <meta name="keywords" content="Expo, React Native, video composition, AVFoundation, MediaCodec, Project Yoked, expo-media-engine">
   <meta name="author" content="Joshua Kac, Project Yoked LLC">
   <link rel="canonical" href="https://sirstig.github.io/projectyoked-expo-media-engine/">
   <meta property="og:title" content="Expo Media Engine">
-  <meta property="og:description" content="Native video processing for Expo apps — stable 0.1.x and pre-release 1.0 documentation.">
+  <meta property="og:description" content="Native video processing for Expo apps — hardware-accelerated composition, real-time preview, filters, transitions.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sirstig.github.io/projectyoked-expo-media-engine/">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "SoftwareApplication",
-        "name": "@projectyoked/expo-media-engine",
-        "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "iOS, Android",
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "author": {
-          "@type": "Organization",
-          "name": "Project Yoked LLC",
-          "url": "https://www.projectyoked.com"
-        },
-        "maintainer": {
-          "@type": "Person",
-          "name": "Joshua Kac",
-          "jobTitle": "CTO",
-          "worksFor": { "@type": "Organization", "name": "Project Yoked LLC" }
-        }
-      }
-    ]
+    "@type": "SoftwareApplication",
+    "name": "@projectyoked/expo-media-engine",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "iOS, Android",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": {
+      "@type": "Organization",
+      "name": "Project Yoked LLC",
+      "url": "https://www.projectyoked.com"
+    },
+    "maintainer": {
+      "@type": "Person",
+      "name": "Joshua Kac",
+      "jobTitle": "CTO",
+      "worksFor": { "@type": "Organization", "name": "Project Yoked LLC" }
+    }
   }
   </script>
 </head>
 <body>
-  <header class="site">
-    <div class="inner">
-      <a class="home" href="./">Expo Media Engine</a>
-      <nav class="site-nav">
-        <label for="doc-version" class="muted">Docs</label>
-        <select id="doc-version" class="version-select" aria-label="Documentation version">
-          <option value="./stable/">Stable (0.1.x)</option>
-          <option value="./alpha/">Pre-release (1.0.0-alpha)</option>
-        </select>
-        <a class="nav-aux" href="changelog.html">Changelog</a>
-        <a class="nav-aux" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm</a>
-      </nav>
-    </div>
+
+  <header class="site-header">
+    <a class="header-logo" href="./">Expo <span>Media Engine</span></a>
+    <div class="header-spacer"></div>
+    <nav class="header-nav">
+      <a href="stable/">Stable</a>
+      <a href="alpha/">Pre-release</a>
+      <a href="changelog.html">Changelog</a>
+      <a class="header-badge" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm ↗</a>
+      <a class="header-badge" href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener" style="margin-left:0.2rem">GitHub ↗</a>
+      <button class="theme-btn" aria-label="Toggle theme">☀ Light</button>
+    </nav>
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu">
+      <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
+        <rect width="18" height="2" rx="1" fill="currentColor"/>
+        <rect y="6" width="18" height="2" rx="1" fill="currentColor"/>
+        <rect y="12" width="18" height="2" rx="1" fill="currentColor"/>
+      </svg>
+    </button>
   </header>
 
-  <aside class="used-strip" aria-label="Production use">
-    <a class="used-strip__inner" href="https://www.projectyoked.com">
-      <img class="used-strip__logo" src="https://projectyoked.com/assets/project-yoked-logo.png" alt="Project Yoked" width="112" height="28">
-      <div class="used-strip__copy">
-        <span class="used-strip__label">Used in production</span>
-        <span class="used-strip__sub">Project Yoked — workout training app (iOS and Android)</span>
+  <div class="landing">
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-eyebrow">Open Source &middot; MIT License</div>
+      <h1>Native video composition<br>for Expo</h1>
+      <p class="hero-sub">
+        Hardware-accelerated video editing on iOS and Android. Real-time preview,
+        9 filters, 8 transitions, audio mixing, and interactive overlays —
+        no proprietary SDKs, no per-minute billing.
+      </p>
+      <div class="install-pill">
+        <span class="prompt">$</span>
+        <span>npm i @projectyoked/expo-media-engine@alpha</span>
       </div>
-    </a>
-  </aside>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="alpha/">Pre-release docs</a>
+        <a class="btn btn-ghost" href="stable/">Stable (0.1.x)</a>
+        <a class="btn btn-ghost" href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener">GitHub ↗</a>
+      </div>
+    </section>
 
-  <main class="wrap">
-    <h1>Expo Media Engine</h1>
-    <p class="muted">Open-source Expo native module for hardware-accelerated video composition and editing on iOS and Android.</p>
+    <!-- USED-IN STRIP -->
+    <div class="used-strip">
+      <a href="https://www.projectyoked.com" target="_blank" rel="noopener">
+        <img class="used-strip-logo" src="https://projectyoked.com/assets/project-yoked-logo.png" alt="Project Yoked" width="112" height="28">
+        <div class="used-strip-copy">
+          <span class="used-strip-label">Used in production</span>
+          <span class="used-strip-sub">Project Yoked — workout training app (iOS &amp; Android)</span>
+        </div>
+      </a>
+    </div>
 
-    <p>
-      Built on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android), the engine gives you
-      real-time preview, multi-track composition, 9 filters, 8 transitions, audio mixing, text and image overlays,
-      video stitching, and compression — without proprietary SDKs or per-minute billing.
-    </p>
-    <p>
-      The package is published on npm as <code>@projectyoked/expo-media-engine</code>.
-      The current pre-release line (<strong>1.0.0-alpha</strong>, npm tag <code>alpha</code>) contains the full feature set.
-      A legacy stable line (<strong>0.1.x</strong>, npm tag <code>latest</code>) covers basic single-video export and audio utilities.
-    </p>
+    <!-- FEATURES -->
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🎬</div>
+        <h3>Multi-track composition</h3>
+        <p>Stack video, audio, text, and image tracks with per-clip timing, transforms, and blending.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Live preview engine</h3>
+        <p>Frame-accurate preview backed by AVPlayer (iOS) and OpenGL ES 2.0 (Android). Filters and transitions match the export exactly.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎨</div>
+        <h3>9 filters · 8 transitions</h3>
+        <p>Grayscale, sepia, warm, cool, vignette and more. Crossfade, slide, zoom, and fade transitions — all with adjustable duration.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔊</div>
+        <h3>Full audio mixing</h3>
+        <p>Multi-track audio with per-clip volume, fade in/out, and keyframe-based volume automation.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📱</div>
+        <h3>iOS &amp; Android</h3>
+        <p>AVFoundation on iOS. MediaCodec + OpenGL ES 2.0 on Android. True native performance on both platforms.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🧩</div>
+        <h3>Interactive overlays</h3>
+        <p><code>useCompositionOverlays</code> feeds resolved text/image data to your Skia layer — same coordinate space, drag/resize ready.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">✂️</div>
+        <h3>Stitch &amp; compress</h3>
+        <p>Fast mp4parser concatenation with auto-fallback transcoding. H.264/H.265 compression with quality presets.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Zero lock-in</h3>
+        <p>Pure MIT-licensed Swift and Kotlin. No API keys, vendor accounts, or recurring subscription costs.</p>
+      </div>
+    </div>
 
-    <h2>Choose documentation</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Release line</th>
-          <th>npm install</th>
-          <th>Docs</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>Stable</td>
-          <td><code>npm i @projectyoked/expo-media-engine</code></td>
-          <td><a href="stable/">Stable documentation</a></td>
-        </tr>
-        <tr>
-          <td>Pre-release</td>
-          <td><code>npm i @projectyoked/expo-media-engine@alpha</code></td>
-          <td><a href="alpha/">Pre-release documentation</a></td>
-        </tr>
-        <tr>
-          <td>History</td>
-          <td colspan="2"><a href="changelog.html">Changelog</a> (same content as <code>CHANGELOG.md</code> in the repository)</td>
-        </tr>
-      </tbody>
-    </table>
+    <!-- CHOOSE DOCS -->
+    <section class="landing-section">
+      <h2>Choose a release line</h2>
+      <div class="docs-card">
+        <table>
+          <thead>
+            <tr><th>Line</th><th>Install</th><th>Docs</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Pre-release (1.0.0-alpha-2)</strong></td>
+              <td><code>npm i @projectyoked/expo-media-engine@alpha</code></td>
+              <td><a href="alpha/">Full API reference →</a></td>
+            </tr>
+            <tr>
+              <td>Stable (0.1.x)</td>
+              <td><code>npm i @projectyoked/expo-media-engine</code></td>
+              <td><a href="stable/">Stable docs →</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:0.9rem;font-size:0.855rem;">The pre-release line contains the full feature set. Stable (0.1.x) covers basic single-video export and audio utilities only.</p>
+    </section>
 
-    <h2>Background</h2>
-    <p>
-      This library was built at <a href="https://www.projectyoked.com">Project Yoked LLC</a> for the Project Yoked app (see the strip above).
-      It exists because we needed native composition, preview, and related media behavior in Expo without vendor lock-in or prohibitive third-party video SDKs, so we implemented it in-house and released it under the MIT license.
-    </p>
+    <!-- BACKGROUND -->
+    <section class="landing-section">
+      <h2>Background</h2>
+      <p>Built at <a href="https://www.projectyoked.com" target="_blank" rel="noopener">Project Yoked LLC</a> for the Project Yoked fitness app. We needed native video composition and real-time preview without vendor lock-in or third-party SDK fees, so we built it in-house and released it under the MIT license.</p>
+    </section>
 
-    <h2>Repository and issues</h2>
-    <ul class="api-list">
-      <li><a href="https://github.com/SirStig/projectyoked-expo-media-engine">GitHub repository</a></li>
-      <li><a href="https://www.npmjs.com/package/@projectyoked/expo-media-engine">npm package page</a></li>
-    </ul>
-
-    <footer class="site">
-      <p>MIT License. Project Yoked LLC. Documentation generated as static HTML for GitHub Pages.</p>
+    <footer class="site-footer">
+      <span>MIT License &middot; <a href="https://www.projectyoked.com" target="_blank" rel="noopener">Project Yoked LLC</a></span>
+      <span>
+        <a href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener">GitHub</a> &middot;
+        <a href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm</a> &middot;
+        <a href="changelog.html">Changelog</a> &middot;
+        <a href="llms.txt">llms.txt</a>
+      </span>
     </footer>
-  </main>
 
-  <script>
-    document.getElementById('doc-version').addEventListener('change', function () {
-      if (this.value) window.location.href = this.value;
-    });
-  </script>
+  </div>
+
+  <script src="assets/app.js"></script>
 </body>
 </html>

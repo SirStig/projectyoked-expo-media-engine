@@ -1,90 +1,187 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Stable (0.1.x) — Expo Media Engine</title>
-  <meta name="description" content="Documentation for @projectyoked/expo-media-engine stable release line (npm latest, 0.1.x): exportComposition, extractAudio, getWaveform.">
+  <meta name="description" content="Documentation for @projectyoked/expo-media-engine stable release line (0.1.x, npm latest): exportComposition, extractAudio, getWaveform.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://sirstig.github.io/projectyoked-expo-media-engine/stable/">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
-  <header class="site">
-    <div class="inner">
-      <a class="home" href="../">Expo Media Engine</a>
-      <nav class="site-nav">
-        <label for="doc-version" class="muted">Docs</label>
-        <select id="doc-version" class="version-select" aria-label="Documentation version">
-          <option value="../stable/" selected>Stable (0.1.x)</option>
-          <option value="../alpha/">Pre-release (1.0.0-alpha)</option>
-        </select>
-        <a class="nav-aux" href="../changelog.html">Changelog</a>
-        <a class="nav-aux" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm</a>
-      </nav>
-    </div>
+
+  <header class="site-header">
+    <a class="header-logo" href="../">Expo <span>Media Engine</span></a>
+    <div class="header-spacer"></div>
+    <nav class="header-nav">
+      <a href="../stable/" class="active">Stable</a>
+      <a href="../alpha/">Pre-release</a>
+      <a href="../changelog.html">Changelog</a>
+      <a class="header-badge" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm ↗</a>
+      <button class="theme-btn" aria-label="Toggle theme">☀ Light</button>
+    </nav>
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu">
+      <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
+        <rect width="18" height="2" rx="1" fill="currentColor"/>
+        <rect y="6" width="18" height="2" rx="1" fill="currentColor"/>
+        <rect y="12" width="18" height="2" rx="1" fill="currentColor"/>
+      </svg>
+    </button>
   </header>
 
-  <aside class="used-strip" aria-label="Production use">
-    <a class="used-strip__inner" href="https://www.projectyoked.com">
-      <img class="used-strip__logo" src="https://projectyoked.com/assets/project-yoked-logo.png" alt="Project Yoked" width="112" height="28">
-      <div class="used-strip__copy">
-        <span class="used-strip__label">Used in production</span>
-        <span class="used-strip__sub">Project Yoked — workout training app (iOS and Android)</span>
+  <div class="page-layout">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+
+      <div class="sidebar-group">
+        <span class="sidebar-label">Getting started</span>
+        <a class="sidebar-link" href="#install">Installation</a>
+        <a class="sidebar-link" href="#requirements">Requirements</a>
       </div>
-    </a>
-  </aside>
 
-  <main class="wrap">
-    <div class="banner">
-      <strong>Stable line (0.1.x).</strong> This page covers the legacy API on npm tag <code>latest</code>. For the full feature set — multi-track composition, preview, filters, transitions, and more — see <a href="../alpha/">pre-release documentation</a>.
-    </div>
+      <div class="sidebar-divider"></div>
 
-    <h1>Stable documentation (0.1.x)</h1>
+      <div class="sidebar-group">
+        <span class="sidebar-label">API</span>
+        <a class="sidebar-link" href="#is-available">isAvailable</a>
+        <a class="sidebar-link" href="#extract-audio">extractAudio</a>
+        <a class="sidebar-link" href="#get-waveform">getWaveform</a>
+        <a class="sidebar-link" href="#export-composition">exportComposition</a>
+        <a class="sidebar-link" href="#typescript">TypeScript</a>
+      </div>
 
-    <h2>Install</h2>
-    <pre>npm install @projectyoked/expo-media-engine
-npx expo prebuild</pre>
-    <p class="muted">Requires a <a href="https://docs.expo.dev/develop/development-builds/introduction/">development build</a>. Expo Go is not supported.</p>
+      <div class="sidebar-divider"></div>
 
-    <h2>Requirements</h2>
-    <ul class="api-list">
-      <li>Expo SDK 49+</li>
-      <li><code>expo-modules-core</code> 1.0.0+</li>
-      <li>React Native 0.64+</li>
-      <li>iOS 13.4+, Android API 21+</li>
-    </ul>
+      <div class="sidebar-group">
+        <span class="sidebar-label">More</span>
+        <a class="sidebar-link" href="../alpha/">Pre-release docs →</a>
+        <a class="sidebar-link sidebar-ext" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm package</a>
+        <a class="sidebar-link sidebar-ext" href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener">GitHub</a>
+        <a class="sidebar-link" href="../changelog.html">Changelog</a>
+      </div>
 
-    <h2>API</h2>
-    <ul class="api-list">
-      <li><code>isAvailable()</code> — returns <code>true</code> if the native module is linked</li>
-      <li><code>extractAudio(videoUri, outputUri)</code> — pulls audio from a video to <code>.m4a</code></li>
-      <li><code>getWaveform(audioUri, samples?)</code> — normalized RMS amplitude array (0–1)</li>
-      <li><code>exportComposition(config)</code> — single-video export with text/emoji overlays and optional background music</li>
-    </ul>
+    </aside>
 
-    <h2>exportComposition config</h2>
-    <p>Required: <code>videoPath</code>, <code>outputPath</code>. Quality via <code>quality</code> (<code>'low'</code> | <code>'medium'</code> | <code>'high'</code>) or an explicit <code>bitrate</code> in bps.</p>
-    <p>Overlay fields use parallel arrays: <code>textArray</code>, <code>textX</code>, <code>textY</code>, <code>textColors</code>, <code>textSizes</code>, <code>textStarts</code>, <code>textDurations</code>, and the equivalent <code>emoji*</code> fields. Audio mix: <code>musicPath</code>, <code>musicVolume</code>, <code>originalVolume</code>.</p>
+    <!-- CONTENT -->
+    <main class="content">
+      <div class="content-inner">
 
-    <h2>TypeScript</h2>
-    <p>Types ship with the package. See <code>ExportCompositionConfig</code> in <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts"><code>src/index.d.ts</code></a>.</p>
+        <div class="banner">
+          <strong>Stable line (0.1.x).</strong>&nbsp;
+          This is the legacy API on npm tag <code>latest</code>. For the full feature set — multi-track composition, real-time preview, filters, transitions, and more — see the <a href="../alpha/">pre-release documentation</a>.
+        </div>
 
-    <h2>Looking for more features?</h2>
-    <p>The pre-release line adds multi-track composition, real-time preview, filters, transitions, video stitching, compression, and full audio mixing. Install with <code>npm install @projectyoked/expo-media-engine@alpha</code> and read the <a href="../alpha/">pre-release documentation</a>.</p>
+        <div style="margin-bottom:2.5rem">
+          <h1 style="margin-bottom:0.35rem">Stable documentation <code style="font-size:0.5em;vertical-align:middle;color:var(--muted)">0.1.x</code></h1>
+          <p style="margin:0">The stable line provides basic single-video export, audio extraction, and waveform generation.</p>
+        </div>
 
-    <footer class="site">
-      <p><a href="../">Home</a> · <a href="../changelog.html">Changelog</a></p>
-    </footer>
-  </main>
+        <!-- INSTALL -->
+        <section class="doc-section" id="install" data-section>
+          <div class="section-heading">
+            <div class="section-icon">📦</div>
+            <h2>Installation</h2>
+          </div>
+<pre><code>npm install @projectyoked/expo-media-engine
+npx expo prebuild</code></pre>
+          <p>Requires a <a href="https://docs.expo.dev/develop/development-builds/introduction/" target="_blank" rel="noopener">development build</a>. Expo Go is not supported.</p>
+        </section>
 
-  <script>
-    document.getElementById('doc-version').addEventListener('change', function () {
-      if (this.value) window.location.href = this.value;
-    });
-  </script>
+        <!-- REQUIREMENTS -->
+        <section class="doc-section" id="requirements" data-section>
+          <div class="section-heading">
+            <div class="section-icon">✅</div>
+            <h2>Requirements</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Requirement</th><th>Minimum</th></tr></thead>
+              <tbody>
+                <tr><td>Expo SDK</td><td>49+</td></tr>
+                <tr><td><code>expo-modules-core</code></td><td>1.0.0+</td></tr>
+                <tr><td>iOS</td><td>13.4+</td></tr>
+                <tr><td>Android API</td><td>21+</td></tr>
+                <tr><td>React Native</td><td>0.64+</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- IS AVAILABLE -->
+        <section class="doc-section" id="is-available" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🔍</div>
+            <h2>isAvailable</h2>
+          </div>
+          <p>Returns <code>true</code> if the native module is linked correctly.</p>
+<pre><code>import MediaEngine from '@projectyoked/expo-media-engine';
+MediaEngine.isAvailable(); // boolean</code></pre>
+        </section>
+
+        <!-- EXTRACT AUDIO -->
+        <section class="doc-section" id="extract-audio" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🎵</div>
+            <h2>extractAudio</h2>
+          </div>
+          <p>Pulls the audio track from a video file and writes it to a <code>.m4a</code> file.</p>
+<pre><code>await MediaEngine.extractAudio(
+  'file:///path/to/video.mp4',
+  'file:///path/to/output.m4a'
+);</code></pre>
+        </section>
+
+        <!-- GET WAVEFORM -->
+        <section class="doc-section" id="get-waveform" data-section>
+          <div class="section-heading">
+            <div class="section-icon">〰️</div>
+            <h2>getWaveform</h2>
+          </div>
+          <p>Returns a normalized array of RMS amplitude values (0–1) for waveform visualization. The optional second argument controls the number of samples.</p>
+<pre><code>const amplitudes = await MediaEngine.getWaveform('file:///audio.mp3', 200);
+// number[] of length 200</code></pre>
+        </section>
+
+        <!-- EXPORT COMPOSITION -->
+        <section class="doc-section" id="export-composition" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🎬</div>
+            <h2>exportComposition</h2>
+          </div>
+          <p>Single-video export with optional text/emoji overlays and background music.</p>
+          <p><strong>Required fields:</strong> <code>videoPath</code>, <code>outputPath</code>.</p>
+          <p><strong>Quality:</strong> set <code>quality</code> (<code>'low'</code> | <code>'medium'</code> | <code>'high'</code>) or provide an explicit <code>bitrate</code> in bps.</p>
+          <p><strong>Overlays:</strong> use parallel arrays — <code>textArray</code>, <code>textX</code>, <code>textY</code>, <code>textColors</code>, <code>textSizes</code>, <code>textStarts</code>, <code>textDurations</code>, and equivalent <code>emoji*</code> fields.</p>
+          <p><strong>Audio mix:</strong> <code>musicPath</code>, <code>musicVolume</code>, <code>originalVolume</code>.</p>
+        </section>
+
+        <!-- TYPESCRIPT -->
+        <section class="doc-section" id="typescript" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🟦</div>
+            <h2>TypeScript</h2>
+          </div>
+          <p>Types ship with the package. See <code>ExportCompositionConfig</code> in <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts" target="_blank" rel="noopener"><code>src/index.d.ts</code></a>.</p>
+        </section>
+
+        <footer class="doc-footer">
+          <a href="../">Home</a>
+          <a href="../alpha/">Pre-release docs</a>
+          <a href="../changelog.html">Changelog</a>
+          <a href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm</a>
+        </footer>
+
+      </div>
+    </main>
+  </div>
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <script src="../assets/app.js"></script>
 </body>
 </html>

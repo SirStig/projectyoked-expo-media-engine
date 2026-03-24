@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,183 +9,165 @@
   <link rel="canonical" href="https://sirstig.github.io/projectyoked-expo-media-engine/alpha/">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../assets/style.css">
-  <style>
-    .toc { margin: 1.5rem 0 2rem; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
-    .toc p { margin: 0 0 0.5rem; font-weight: 600; }
-    .toc ol { margin: 0; padding-left: 1.25rem; }
-    .toc li { margin: 0.2rem 0; }
-    .tag-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0 1.25rem; }
-    .tag { font-family: "IBM Plex Mono", monospace; font-size: 0.8rem; padding: 0.2em 0.55em; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--muted); }
-    h2[id] { scroll-margin-top: 1.5rem; }
-    h3[id] { scroll-margin-top: 1.5rem; }
-    .prop-table th:first-child { width: 28%; }
-    .prop-table th:nth-child(2) { width: 20%; }
-    table code { font-size: 0.82em; }
-    .section-divider { margin: 2.5rem 0 0; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
-  </style>
 </head>
 <body>
-  <header class="site">
-    <div class="inner">
-      <a class="home" href="../">Expo Media Engine</a>
-      <nav class="site-nav">
-        <label for="doc-version" class="muted">Docs</label>
-        <select id="doc-version" class="version-select" aria-label="Documentation version">
-          <option value="../stable/">Stable (0.1.x)</option>
-          <option value="../alpha/" selected>Pre-release (1.0.0-alpha)</option>
-        </select>
-        <a class="nav-aux" href="../changelog.html">Changelog</a>
-        <a class="nav-aux" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm</a>
-      </nav>
-    </div>
+
+  <header class="site-header">
+    <a class="header-logo" href="../">Expo <span>Media Engine</span></a>
+    <div class="header-spacer"></div>
+    <nav class="header-nav">
+      <a href="../stable/">Stable</a>
+      <a href="../alpha/" class="active">Pre-release</a>
+      <a href="../changelog.html">Changelog</a>
+      <a class="header-badge" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm ↗</a>
+      <button class="theme-btn" aria-label="Toggle theme">☀ Light</button>
+    </nav>
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu">
+      <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
+        <rect width="18" height="2" rx="1" fill="currentColor"/>
+        <rect y="6" width="18" height="2" rx="1" fill="currentColor"/>
+        <rect y="12" width="18" height="2" rx="1" fill="currentColor"/>
+      </svg>
+    </button>
   </header>
 
-  <aside class="used-strip" aria-label="Production use">
-    <a class="used-strip__inner" href="https://www.projectyoked.com">
-      <img class="used-strip__logo" src="https://projectyoked.com/assets/project-yoked-logo.png" alt="Project Yoked" width="112" height="28">
-      <div class="used-strip__copy">
-        <span class="used-strip__label">Used in production</span>
-        <span class="used-strip__sub">Project Yoked — workout training app (iOS and Android)</span>
+  <div class="page-layout">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+
+      <div class="sidebar-group">
+        <span class="sidebar-label">Getting started</span>
+        <a class="sidebar-link" href="#install">Installation</a>
+        <a class="sidebar-link" href="#requirements">Requirements</a>
+        <a class="sidebar-link" href="#quick-start">Quick start</a>
       </div>
-    </a>
-  </aside>
 
-  <main class="wrap">
-    <div class="banner">
-      <strong>Pre-release — 1.0.0-alpha-2.</strong> Install with <code>npm install @projectyoked/expo-media-engine@alpha</code>. APIs may change before <code>1.0.0</code>. Requires a <a href="https://docs.expo.dev/develop/development-builds/introduction/">development build</a> — Expo Go is not supported.
-    </div>
+      <div class="sidebar-divider"></div>
 
-    <h1>Expo Media Engine <span class="muted" style="font-size:0.6em;font-family:'IBM Plex Mono',monospace;">1.0.0-alpha-2</span></h1>
-    <p>A hardware-accelerated video composition and editing engine for Expo. Runs on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android). No proprietary SDKs. No per-minute billing.</p>
+      <div class="sidebar-group">
+        <span class="sidebar-label">Composition</span>
+        <a class="sidebar-link" href="#compose">composeCompositeVideo</a>
+        <a class="sidebar-link" href="#tracks">Tracks &amp; clips</a>
+        <a class="sidebar-link" href="#clip-props">Clip properties</a>
+        <a class="sidebar-link" href="#filters">Filters</a>
+        <a class="sidebar-link" href="#transitions">Transitions</a>
+        <a class="sidebar-link" href="#text-style">Text styling</a>
+        <a class="sidebar-link" href="#audio">Audio &amp; volume</a>
+      </div>
 
-    <nav class="toc" aria-label="Page contents">
-      <p>On this page</p>
-      <ol>
-        <li><a href="#install">Installation</a></li>
-        <li><a href="#features">Feature overview</a></li>
-        <li><a href="#preview">Preview engine</a></li>
-        <li><a href="#compose">composeCompositeVideo</a></li>
-        <li><a href="#clip-props">Clip properties</a></li>
-        <li><a href="#filters">Filters</a></li>
-        <li><a href="#transitions">Transitions</a></li>
-        <li><a href="#text-style">Text styling</a></li>
-        <li><a href="#audio">Audio &amp; volume</a></li>
-        <li><a href="#preview-component">MediaEnginePreview</a></li>
-        <li><a href="#overlays-hook">useCompositionOverlays</a></li>
-        <li><a href="#stitch">stitchVideos</a></li>
-        <li><a href="#compress">compressVideo</a></li>
-        <li><a href="#utilities">Utilities</a></li>
-        <li><a href="#typescript">TypeScript</a></li>
-      </ol>
-    </nav>
+      <div class="sidebar-divider"></div>
 
-    <!-- ───────────────────────────── INSTALL ───────────────────────────── -->
-    <h2 id="install" class="section-divider">Installation</h2>
-    <pre>npm install @projectyoked/expo-media-engine@alpha
-npx expo prebuild</pre>
+      <div class="sidebar-group">
+        <span class="sidebar-label">Preview engine</span>
+        <a class="sidebar-link" href="#preview">Overview</a>
+        <a class="sidebar-link" href="#preview-component">MediaEnginePreview</a>
+        <a class="sidebar-link" href="#overlays-hook">useCompositionOverlays</a>
+      </div>
 
-    <table>
-      <thead><tr><th></th><th>Minimum</th></tr></thead>
-      <tbody>
-        <tr><td>Expo SDK</td><td>49+</td></tr>
-        <tr><td><code>expo-modules-core</code></td><td>1.0.0+</td></tr>
-        <tr><td>iOS</td><td>13.4+</td></tr>
-        <tr><td>Android</td><td>API 21+</td></tr>
-        <tr><td>React Native</td><td>0.64+</td></tr>
-      </tbody>
-    </table>
+      <div class="sidebar-divider"></div>
 
-    <!-- ──────────────────────────── FEATURES ───────────────────────────── -->
-    <h2 id="features" class="section-divider">Feature overview</h2>
-    <ul class="api-list">
-      <li><strong>Real-time preview</strong> — <code>MediaEnginePreview</code> renders at ~30 fps using the same pipeline as export. Filters, transitions, speed, and opacity all match.</li>
-      <li><strong>Multi-track composition</strong> — Stack video, audio, image, and text tracks with per-clip timing, blending, and transforms.</li>
-      <li><strong>9 filters</strong> — Grayscale, sepia, vignette, invert, brightness, contrast, saturation, warm, cool. All with adjustable intensity.</li>
-      <li><strong>8 transitions</strong> — Crossfade, fade to black, slide (left/right/up/down), zoom in/out. Configurable duration.</li>
-      <li><strong>Per-clip controls</strong> — Opacity, speed, source trimming, position, scale, rotation, resize mode.</li>
-      <li><strong>Audio mixing</strong> — Multiple tracks with volume, fade in/out, and keyframe-based automation.</li>
-      <li><strong>Text &amp; emoji overlays</strong> — Font size, bold, color, shadow, stroke, background, timed visibility.</li>
-      <li><strong>Image overlays</strong> — Positioned, scaled, rotated image tracks with timing.</li>
-      <li><strong>Video stitching</strong> — Fast concatenation with transcoding fallback.</li>
-      <li><strong>Video compression</strong> — H.264 or H.265, quality presets or explicit bitrate.</li>
-      <li><strong>Waveform generation</strong> — Normalized RMS amplitude array from audio.</li>
-      <li><strong>Audio extraction</strong> — Pull audio from video to <code>.m4a</code>.</li>
-    </ul>
+      <div class="sidebar-group">
+        <span class="sidebar-label">Utilities</span>
+        <a class="sidebar-link" href="#stitch">stitchVideos</a>
+        <a class="sidebar-link" href="#compress">compressVideo</a>
+        <a class="sidebar-link" href="#waveform">getWaveform</a>
+        <a class="sidebar-link" href="#extract-audio">extractAudio</a>
+        <a class="sidebar-link" href="#is-available">isAvailable</a>
+      </div>
 
-    <!-- ──────────────────────────── PREVIEW ────────────────────────────── -->
-    <h2 id="preview" class="section-divider">Preview engine</h2>
-    <p>The preview system is designed for a CapCut-style layered editor:</p>
-    <ol>
-      <li><code>&lt;MediaEnginePreview&gt;</code> renders video tracks natively — filters, transitions, and speed are applied in hardware, matching the export output exactly.</li>
-      <li><code>useCompositionOverlays(config, currentTime)</code> returns the active text and image clips with all transforms resolved, so your Skia or Reanimated layer can render them interactively on top.</li>
-      <li>The same <code>CompositionConfig</code> drives both layers and the final export — no coordinate conversion, no guessing.</li>
-    </ol>
+      <div class="sidebar-divider"></div>
 
-<pre>import { useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import {
-  MediaEnginePreview,
-  useCompositionOverlays,
-} from '@projectyoked/expo-media-engine';
+      <div class="sidebar-group">
+        <span class="sidebar-label">Reference</span>
+        <a class="sidebar-link" href="#typescript">TypeScript types</a>
+      </div>
 
-export function CompositionEditor({ config }) {
-  const previewRef = useRef(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying]     = useState(false);
+      <div class="sidebar-divider"></div>
 
-  // Active text and image clips at the current position,
-  // with x/y/scale/rotation/opacity resolved — feed to Skia directly
-  const overlays = useCompositionOverlays(config, currentTime);
+      <div class="sidebar-group">
+        <a class="sidebar-link sidebar-ext" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm package</a>
+        <a class="sidebar-link sidebar-ext" href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener">GitHub</a>
+        <a class="sidebar-link" href="../changelog.html">Changelog</a>
+        <a class="sidebar-link" href="../llms.txt">llms.txt</a>
+      </div>
 
-  return (
-    &lt;View style={styles.container}&gt;
-      {/* Native video layer — filters, transitions, speed applied here */}
-      &lt;MediaEnginePreview
-        ref={previewRef}
-        config={config}
-        isPlaying={isPlaying}
-        onTimeUpdate={e =&gt; setCurrentTime(e.nativeEvent.currentTime)}
-        onLoad={e =&gt; console.log('Duration:', e.nativeEvent.duration)}
-        style={StyleSheet.absoluteFill}
-      /&gt;
+    </aside>
 
-      {/* Interactive overlay layer — render with Skia, Reanimated, or RN */}
-      {overlays.map(overlay =&gt; (
-        &lt;InteractiveOverlay key={overlay.id} overlay={overlay} /&gt;
-      ))}
-    &lt;/View&gt;
-  );
-}</pre>
+    <!-- CONTENT -->
+    <main class="content">
+      <div class="content-inner">
 
-    <!-- ──────────────────────────── COMPOSE ─────────────────────────────── -->
-    <h2 id="compose" class="section-divider">composeCompositeVideo</h2>
-    <p>The primary export function. Renders a <code>CompositionConfig</code> to a video file.</p>
+        <div class="banner">
+          <strong>Pre-release — 1.0.0-alpha-2.</strong>&nbsp;
+          APIs may change before <code>1.0.0</code>. Requires a
+          <a href="https://docs.expo.dev/develop/development-builds/introduction/" target="_blank" rel="noopener">development build</a> — Expo Go is not supported.
+        </div>
 
-<pre>import MediaEngine from '@projectyoked/expo-media-engine';
+        <div style="margin-bottom:2.5rem">
+          <h1 style="margin-bottom:0.35rem">Expo Media Engine <code style="font-size:0.5em;vertical-align:middle;color:var(--muted)">1.0.0-alpha-2</code></h1>
+          <p style="margin:0">Hardware-accelerated video composition and editing for Expo. Built on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android). No proprietary SDKs. No per-minute billing.</p>
+        </div>
+
+        <!-- ============ INSTALL ============ -->
+        <section class="doc-section" id="install" data-section>
+          <div class="section-heading">
+            <div class="section-icon">📦</div>
+            <h2>Installation</h2>
+          </div>
+<pre><code>npm install @projectyoked/expo-media-engine@alpha
+npx expo prebuild</code></pre>
+        </section>
+
+        <!-- ============ REQUIREMENTS ============ -->
+        <section class="doc-section" id="requirements" data-section>
+          <div class="section-heading">
+            <div class="section-icon">✅</div>
+            <h2>Requirements</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Requirement</th><th>Minimum</th></tr></thead>
+              <tbody>
+                <tr><td>Expo SDK</td><td>49+</td></tr>
+                <tr><td><code>expo-modules-core</code></td><td>1.0.0+</td></tr>
+                <tr><td>iOS</td><td>13.4+</td></tr>
+                <tr><td>Android API</td><td>21+</td></tr>
+                <tr><td>React Native</td><td>0.64+</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============ QUICK START ============ -->
+        <section class="doc-section" id="quick-start" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🚀</div>
+            <h2>Quick start</h2>
+          </div>
+<pre><code>import MediaEngine from '@projectyoked/expo-media-engine';
 
 const outputUri = await MediaEngine.composeCompositeVideo({
   outputUri: 'file:///path/to/output.mp4',
   width:     1080,
   height:    1920,
   frameRate: 30,
-  quality:   'high',  // 'low' | 'medium' | 'high', or set videoBitrate explicitly
-
+  quality:   'high',
   tracks: [
     {
       type: 'video',
       clips: [
         {
-          uri:              'file:///clip-a.mp4',
-          startTime:        0,
-          duration:         5,
-          filter:           'warm',
-          filterIntensity:  0.6,
+          uri:       'file:///clip-a.mp4',
+          startTime: 0,
+          duration:  5,
+          filter:    'warm',
         },
         {
           uri:                'file:///clip-b.mp4',
-          startTime:          4,   // overlap by 1 s for the transition
+          startTime:          4,
           duration:           5,
           transition:         'crossfade',
           transitionDuration: 1,
@@ -194,317 +176,433 @@ const outputUri = await MediaEngine.composeCompositeVideo({
     },
     {
       type: 'audio',
-      clips: [
-        {
-          uri:             'file:///music.mp3',
-          startTime:       0,
-          duration:        9,
-          volume:          0.8,
-          fadeOutDuration: 1.5,
-        },
-      ],
-    },
-    {
-      type: 'text',
-      clips: [
-        {
-          text:      'Hello World',
-          startTime: 0.5,
-          duration:  3,
-          x:         0.5,
-          y:         0.15,
-          textStyle: {
-            fontSize:   52,
-            fontWeight: 'bold',
-            color:      '#FFFFFF',
-            shadowColor:  '#000000',
-            shadowRadius: 4,
-          },
-        },
-      ],
+      clips: [{ uri: 'file:///music.mp3', startTime: 0, duration: 9, volume: 0.8 }],
     },
   ],
-});</pre>
+});</code></pre>
+        </section>
 
-    <h3>CompositionConfig top-level fields</h3>
-    <table class="prop-table">
-      <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>outputUri</code></td><td>string</td><td>Destination file path (<code>file://…</code>)</td></tr>
-        <tr><td><code>width</code></td><td>number</td><td>Output width in pixels. Inferred from source if omitted.</td></tr>
-        <tr><td><code>height</code></td><td>number</td><td>Output height in pixels. Inferred from source if omitted.</td></tr>
-        <tr><td><code>frameRate</code></td><td>number</td><td>Output frame rate. Inferred from source if omitted.</td></tr>
-        <tr><td><code>quality</code></td><td><code>'low'</code> | <code>'medium'</code> | <code>'high'</code></td><td>Shorthand: low = 1 Mbps, medium = 4 Mbps, high = 10 Mbps.</td></tr>
-        <tr><td><code>videoBitrate</code></td><td>number</td><td>Explicit video bitrate in bps. Overrides <code>quality</code>.</td></tr>
-        <tr><td><code>audioBitrate</code></td><td>number</td><td>Audio bitrate in bps. Default: 128000.</td></tr>
-        <tr><td><code>videoProfile</code></td><td><code>'baseline'</code> | <code>'main'</code> | <code>'high'</code></td><td>H.264 profile. Default: <code>baseline</code>.</td></tr>
-        <tr><td><code>enablePassthrough</code></td><td>boolean</td><td>Allow zero-copy passthrough when no re-encoding is needed. Default: <code>true</code>.</td></tr>
-        <tr><td><code>tracks</code></td><td>CompositeTrack[]</td><td>Ordered array of tracks (bottom-most first).</td></tr>
-      </tbody>
-    </table>
+        <!-- ============ COMPOSE ============ -->
+        <section class="doc-section" id="compose" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🎬</div>
+            <h2>composeCompositeVideo</h2>
+          </div>
+          <p>The primary export function. Renders a <code>CompositionConfig</code> to a video file on disk.</p>
+          <h3>Top-level config fields</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>outputUri</code></td><td>string</td><td>Destination file path (<code>file://…</code>). Required.</td></tr>
+                <tr><td><code>width</code></td><td>number</td><td>Output width in pixels. Inferred from primary video source if omitted.</td></tr>
+                <tr><td><code>height</code></td><td>number</td><td>Output height in pixels. Inferred from primary video source if omitted.</td></tr>
+                <tr><td><code>frameRate</code></td><td>number</td><td>Output frame rate. Inferred from source if omitted.</td></tr>
+                <tr><td><code>quality</code></td><td><code>'low'</code> | <code>'medium'</code> | <code>'high'</code></td><td>Bitrate shorthand: low = 1 Mbps, medium = 4 Mbps, high = 10 Mbps.</td></tr>
+                <tr><td><code>videoBitrate</code></td><td>number</td><td>Explicit video bitrate in bps. Overrides <code>quality</code>.</td></tr>
+                <tr><td><code>audioBitrate</code></td><td>number</td><td>Audio bitrate in bps. Default: 128000.</td></tr>
+                <tr><td><code>videoProfile</code></td><td><code>'baseline'</code> | <code>'main'</code> | <code>'high'</code></td><td>H.264 profile. Default: <code>baseline</code>.</td></tr>
+                <tr><td><code>enablePassthrough</code></td><td>boolean</td><td>Allow zero-copy passthrough when no re-encoding is needed. Default: <code>true</code>.</td></tr>
+                <tr><td><code>tracks</code></td><td>CompositeTrack[]</td><td>Ordered array of tracks, bottom-most first. Required.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-    <h3>Track</h3>
-    <table class="prop-table">
-      <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>type</code></td><td>string</td><td><code>'video'</code> | <code>'audio'</code> | <code>'text'</code> | <code>'image'</code></td></tr>
-        <tr><td><code>clips</code></td><td>CompositeClip[]</td><td>Clips on this track, ordered by <code>startTime</code>.</td></tr>
-      </tbody>
-    </table>
+        <!-- ============ TRACKS ============ -->
+        <section class="doc-section" id="tracks" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🗂</div>
+            <h2>Tracks &amp; clips</h2>
+          </div>
+          <p>A <strong>track</strong> has a <code>type</code> and an ordered array of <code>clips</code>. Tracks are composited bottom-to-top.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Track type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>'video'</code></td><td>Video source clips with optional filters and transitions.</td></tr>
+                <tr><td><code>'audio'</code></td><td>Audio source clips with volume and fade controls.</td></tr>
+                <tr><td><code>'text'</code></td><td>Timed text/emoji overlays with full styling.</td></tr>
+                <tr><td><code>'image'</code></td><td>Timed image overlays with transforms.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-    <!-- ─────────────────────────── CLIP PROPS ──────────────────────────── -->
-    <h2 id="clip-props" class="section-divider">Clip properties</h2>
-    <p>All clip types share the base fields below. Type-specific fields (text, image) are listed in their own sections.</p>
+        <!-- ============ CLIP PROPS ============ -->
+        <section class="doc-section" id="clip-props" data-section>
+          <div class="section-heading">
+            <div class="section-icon">✂️</div>
+            <h2>Clip properties</h2>
+          </div>
+          <p>All clip types share these base fields. Type-specific fields (text, image) are covered in their own sections.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>uri</code></td><td>string</td><td>File URI (<code>file://…</code>). Not required for text clips.</td></tr>
+                <tr><td><code>startTime</code></td><td>number</td><td>When the clip appears on the timeline (seconds).</td></tr>
+                <tr><td><code>duration</code></td><td>number</td><td>How long the clip plays (seconds).</td></tr>
+                <tr><td><code>x</code></td><td>number</td><td>Normalized horizontal center 0–1. Default: centered.</td></tr>
+                <tr><td><code>y</code></td><td>number</td><td>Normalized vertical center 0–1. Default: centered.</td></tr>
+                <tr><td><code>scale</code></td><td>number</td><td>Size multiplier. Default: 1.0.</td></tr>
+                <tr><td><code>rotation</code></td><td>number</td><td>Degrees clockwise. Default: 0.</td></tr>
+                <tr><td><code>opacity</code></td><td>number</td><td>Transparency 0–1. Default: 1.0.</td></tr>
+                <tr><td><code>resizeMode</code></td><td>string</td><td><code>'cover'</code> | <code>'contain'</code> | <code>'stretch'</code>. Default: <code>'cover'</code>.</td></tr>
+                <tr><td><code>clipStart</code></td><td>number</td><td>Trim start within source (seconds). Default: 0.</td></tr>
+                <tr><td><code>clipEnd</code></td><td>number</td><td>Trim end within source. <code>-1</code> = full source. Default: -1.</td></tr>
+                <tr><td><code>speed</code></td><td>number</td><td>Playback speed multiplier. 0.5 = slow-mo, 2.0 = fast-forward. Default: 1.0.</td></tr>
+                <tr><td><code>filter</code></td><td>FilterType</td><td>Color filter applied to this clip. See <a href="#filters">Filters</a>.</td></tr>
+                <tr><td><code>filterIntensity</code></td><td>number</td><td>Filter strength 0–1. Default: 1.0.</td></tr>
+                <tr><td><code>transition</code></td><td>TransitionType</td><td>Transition at this clip's boundary. See <a href="#transitions">Transitions</a>.</td></tr>
+                <tr><td><code>transitionDuration</code></td><td>number</td><td>Transition window in seconds. Clips must overlap by at least this amount.</td></tr>
+                <tr><td><code>volume</code></td><td>number</td><td>Audio volume 0–1. Default: 1.0.</td></tr>
+                <tr><td><code>fadeInDuration</code></td><td>number</td><td>Audio fade in (seconds). Default: 0.</td></tr>
+                <tr><td><code>fadeOutDuration</code></td><td>number</td><td>Audio fade out (seconds). Default: 0.</td></tr>
+                <tr><td><code>volumeEnvelope</code></td><td>VolumeEnvelope</td><td>Keyframe-based volume automation. See <a href="#audio">Audio &amp; volume</a>.</td></tr>
+                <tr><td><code>animations</code></td><td>ClipAnimations</td><td>Keyframe arrays for x, y, scale, rotation, opacity over time.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-    <table class="prop-table">
-      <thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>uri</code></td><td>string</td><td>File URI (<code>file://…</code>). Not required for text clips.</td></tr>
-        <tr><td><code>startTime</code></td><td>number</td><td>When the clip appears on the timeline (seconds).</td></tr>
-        <tr><td><code>duration</code></td><td>number</td><td>How long the clip plays (seconds).</td></tr>
-        <tr><td><code>x</code></td><td>number</td><td>Normalized horizontal center, 0–1. Default: 0 (centered for video tracks).</td></tr>
-        <tr><td><code>y</code></td><td>number</td><td>Normalized vertical center, 0–1. Default: 0.</td></tr>
-        <tr><td><code>scale</code></td><td>number</td><td>Size multiplier. Default: 1.0.</td></tr>
-        <tr><td><code>rotation</code></td><td>number</td><td>Degrees, clockwise. Default: 0.</td></tr>
-        <tr><td><code>opacity</code></td><td>number</td><td>Transparency 0–1. Default: 1.0.</td></tr>
-        <tr><td><code>resizeMode</code></td><td>string</td><td><code>'cover'</code> | <code>'contain'</code> | <code>'stretch'</code>. Default: <code>'cover'</code>.</td></tr>
-        <tr><td><code>clipStart</code></td><td>number</td><td>Trim start within the source file (seconds). Default: 0.</td></tr>
-        <tr><td><code>clipEnd</code></td><td>number</td><td>Trim end within the source file. <code>-1</code> = use full source. Default: -1.</td></tr>
-        <tr><td><code>speed</code></td><td>number</td><td>Playback speed multiplier. 0.5 = slow-mo, 2.0 = fast-forward. Default: 1.0.</td></tr>
-        <tr><td><code>filter</code></td><td>FilterType</td><td>See <a href="#filters">Filters</a>.</td></tr>
-        <tr><td><code>filterIntensity</code></td><td>number</td><td>Filter strength 0–1. Default: 1.0.</td></tr>
-        <tr><td><code>transition</code></td><td>TransitionType</td><td>Transition applied at the end of this clip. See <a href="#transitions">Transitions</a>.</td></tr>
-        <tr><td><code>transitionDuration</code></td><td>number</td><td>Transition window in seconds. Clips must overlap by at least this amount.</td></tr>
-        <tr><td><code>volume</code></td><td>number</td><td>Audio volume 0–1. Applies to video and audio clips. Default: 1.0.</td></tr>
-        <tr><td><code>fadeInDuration</code></td><td>number</td><td>Audio fade in (seconds). Default: 0.</td></tr>
-        <tr><td><code>fadeOutDuration</code></td><td>number</td><td>Audio fade out (seconds). Default: 0.</td></tr>
-        <tr><td><code>volumeEnvelope</code></td><td>VolumeEnvelope</td><td>Keyframe-based volume automation. See <a href="#audio">Audio &amp; volume</a>.</td></tr>
-        <tr><td><code>animations</code></td><td>ClipAnimations</td><td>Keyframe arrays for x, y, scale, rotation, opacity over time.</td></tr>
-      </tbody>
-    </table>
+        <!-- ============ FILTERS ============ -->
+        <section class="doc-section" id="filters" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🎨</div>
+            <h2>Filters</h2>
+          </div>
+          <p>Set <code>filter</code> on any video or image clip. Use <code>filterIntensity</code> (0–1) to control strength.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Value</th><th>Effect</th><th>iOS</th><th>Android</th></tr></thead>
+              <tbody>
+                <tr><td><code>'grayscale'</code></td><td>Full desaturation</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'sepia'</code></td><td>Warm brown tone</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'vignette'</code></td><td>Dark edge falloff</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'invert'</code></td><td>Color inversion</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'brightness'</code></td><td>Luminance boost or reduction</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'contrast'</code></td><td>Contrast adjustment</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'saturation'</code></td><td>Color intensity</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'warm'</code></td><td>Red/yellow shift</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'cool'</code></td><td>Blue shift</td><td>✓</td><td>✓</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-    <!-- ──────────────────────────── FILTERS ────────────────────────────── -->
-    <h2 id="filters" class="section-divider">Filters</h2>
-    <p>Set <code>filter</code> on any video or image clip. Combine with <code>filterIntensity</code> (0–1) to adjust strength.</p>
+        <!-- ============ TRANSITIONS ============ -->
+        <section class="doc-section" id="transitions" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🔀</div>
+            <h2>Transitions</h2>
+          </div>
+          <p>Set <code>transition</code> on a clip to apply a transition at that clip's boundary. Outgoing and incoming clips must overlap in time by at least <code>transitionDuration</code> seconds.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Value</th><th>Effect</th><th>iOS</th><th>Android</th></tr></thead>
+              <tbody>
+                <tr><td><code>'crossfade'</code></td><td>Opacity blend between clips</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'fade'</code></td><td>Fade to black, then fade in</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'slide-left'</code></td><td>Incoming slides in from the right</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'slide-right'</code></td><td>Incoming slides in from the left</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'slide-up'</code></td><td>Incoming slides in from the bottom</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'slide-down'</code></td><td>Incoming slides in from the top</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'zoom-in'</code></td><td>Outgoing zooms out while incoming zooms to normal</td><td>✓</td><td>✓</td></tr>
+                <tr><td><code>'zoom-out'</code></td><td>Outgoing shrinks, incoming enters at full size</td><td>✓</td><td>✓</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-    <table>
-      <thead><tr><th>Value</th><th>Effect</th><th>iOS</th><th>Android</th></tr></thead>
-      <tbody>
-        <tr><td><code>'grayscale'</code></td><td>Full desaturation</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'sepia'</code></td><td>Warm brown tone</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'vignette'</code></td><td>Dark edge falloff</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'invert'</code></td><td>Color inversion</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'brightness'</code></td><td>Luminance boost or reduction</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'contrast'</code></td><td>Contrast adjustment</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'saturation'</code></td><td>Color intensity</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'warm'</code></td><td>Red/yellow shift</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'cool'</code></td><td>Blue shift</td><td>✓</td><td>✓</td></tr>
-      </tbody>
-    </table>
+        <!-- ============ TEXT STYLE ============ -->
+        <section class="doc-section" id="text-style" data-section>
+          <div class="section-heading">
+            <div class="section-icon">✍️</div>
+            <h2>Text styling</h2>
+          </div>
+          <p>Text clips support a <code>textStyle</code> object. All fields are optional.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>color</code></td><td>string</td><td>Hex color. Default: <code>#FFFFFF</code>.</td></tr>
+                <tr><td><code>fontSize</code></td><td>number</td><td>Points. Default: 40.</td></tr>
+                <tr><td><code>fontWeight</code></td><td><code>'normal'</code> | <code>'bold'</code></td><td>Default: <code>'normal'</code>.</td></tr>
+                <tr><td><code>backgroundColor</code></td><td>string</td><td>Pill background color. Hidden if omitted.</td></tr>
+                <tr><td><code>backgroundPadding</code></td><td>number</td><td>Padding inside background pill (px). Default: 8.</td></tr>
+                <tr><td><code>shadowColor</code></td><td>string</td><td>Drop shadow color.</td></tr>
+                <tr><td><code>shadowRadius</code></td><td>number</td><td>Shadow blur radius. Default: 0.</td></tr>
+                <tr><td><code>shadowOffsetX</code></td><td>number</td><td>Shadow horizontal offset. Default: 0.</td></tr>
+                <tr><td><code>shadowOffsetY</code></td><td>number</td><td>Shadow vertical offset. Default: 0.</td></tr>
+                <tr><td><code>strokeColor</code></td><td>string</td><td>Text outline color.</td></tr>
+                <tr><td><code>strokeWidth</code></td><td>number</td><td>Text outline width. Default: 0.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-    <!-- ─────────────────────────── TRANSITIONS ─────────────────────────── -->
-    <h2 id="transitions" class="section-divider">Transitions</h2>
-    <p>Set <code>transition</code> on a clip to apply a transition at that clip's boundary. The outgoing and incoming clips must overlap in time by at least <code>transitionDuration</code> seconds.</p>
-
-    <table>
-      <thead><tr><th>Value</th><th>Effect</th><th>iOS</th><th>Android</th></tr></thead>
-      <tbody>
-        <tr><td><code>'crossfade'</code></td><td>Opacity blend between clips</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'fade'</code></td><td>Fade to black, then fade in</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'slide-left'</code></td><td>Incoming slides in from the right</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'slide-right'</code></td><td>Incoming slides in from the left</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'slide-up'</code></td><td>Incoming slides in from the bottom</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'slide-down'</code></td><td>Incoming slides in from the top</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'zoom-in'</code></td><td>Outgoing zooms out while incoming zooms to normal</td><td>✓</td><td>✓</td></tr>
-        <tr><td><code>'zoom-out'</code></td><td>Outgoing shrinks, incoming enters at full size</td><td>✓</td><td>✓</td></tr>
-      </tbody>
-    </table>
-
-    <!-- ─────────────────────────── TEXT STYLE ──────────────────────────── -->
-    <h2 id="text-style" class="section-divider">Text styling</h2>
-    <p>Text clips support a <code>textStyle</code> object. All fields are optional.</p>
-
-    <table class="prop-table">
-      <thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>color</code></td><td>string</td><td>Hex color. Default: <code>#FFFFFF</code>.</td></tr>
-        <tr><td><code>fontSize</code></td><td>number</td><td>Points. Default: 40.</td></tr>
-        <tr><td><code>fontWeight</code></td><td><code>'normal'</code> | <code>'bold'</code></td><td>Default: <code>'normal'</code>.</td></tr>
-        <tr><td><code>backgroundColor</code></td><td>string</td><td>Pill background color. Not shown if omitted.</td></tr>
-        <tr><td><code>backgroundPadding</code></td><td>number</td><td>Padding around text inside the background pill (px). Default: 8.</td></tr>
-        <tr><td><code>shadowColor</code></td><td>string</td><td>Drop shadow color.</td></tr>
-        <tr><td><code>shadowRadius</code></td><td>number</td><td>Drop shadow blur radius. Default: 0.</td></tr>
-        <tr><td><code>shadowOffsetX</code></td><td>number</td><td>Drop shadow horizontal offset. Default: 0.</td></tr>
-        <tr><td><code>shadowOffsetY</code></td><td>number</td><td>Drop shadow vertical offset. Default: 0.</td></tr>
-        <tr><td><code>strokeColor</code></td><td>string</td><td>Text outline color.</td></tr>
-        <tr><td><code>strokeWidth</code></td><td>number</td><td>Text outline width. Default: 0.</td></tr>
-      </tbody>
-    </table>
-
-    <!-- ───────────────────────────── AUDIO ─────────────────────────────── -->
-    <h2 id="audio" class="section-divider">Audio &amp; volume</h2>
-    <p>Audio is mixed from all audio and video tracks. Per-clip volume controls:</p>
-    <ul class="api-list">
-      <li><code>volume</code> — flat multiplier 0–1</li>
-      <li><code>fadeInDuration</code> / <code>fadeOutDuration</code> — linear ramp at start/end</li>
-      <li><code>volumeEnvelope.keyframes</code> — time-based automation (overrides fade when provided)</li>
-    </ul>
-
-<pre>// Volume automation example
+        <!-- ============ AUDIO ============ -->
+        <section class="doc-section" id="audio" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🔊</div>
+            <h2>Audio &amp; volume</h2>
+          </div>
+          <p>Audio is mixed from all <code>audio</code> and <code>video</code> tracks. Per-clip controls:</p>
+          <ul>
+            <li><code>volume</code> — flat multiplier 0–1</li>
+            <li><code>fadeInDuration</code> / <code>fadeOutDuration</code> — linear ramp at start/end</li>
+            <li><code>volumeEnvelope.keyframes</code> — time-based automation (overrides fade when provided)</li>
+          </ul>
+<pre><code>// Volume automation example
 volumeEnvelope: {
   keyframes: [
-    { time: 0,   volume: 0   },  // start silent
-    { time: 1,   volume: 1   },  // ramp up over 1 second
-    { time: 8,   volume: 1   },  // hold
-    { time: 9.5, volume: 0   },  // ramp out
+    { time: 0,   volume: 0 },  // start silent
+    { time: 1,   volume: 1 },  // ramp up over 1 second
+    { time: 8,   volume: 1 },  // hold
+    { time: 9.5, volume: 0 },  // ramp out
   ],
-}</pre>
+},</code></pre>
+        </section>
 
-    <!-- ──────────────────────── PREVIEW COMPONENT ──────────────────────── -->
-    <h2 id="preview-component" class="section-divider">MediaEnginePreview</h2>
-    <p>A native Expo view. Renders video and audio tracks at ~30 fps using the export-accurate pipeline. Import as a named export.</p>
+        <!-- ============ PREVIEW OVERVIEW ============ -->
+        <section class="doc-section" id="preview" data-section>
+          <div class="section-heading">
+            <div class="section-icon">⚡</div>
+            <h2>Preview engine overview</h2>
+          </div>
+          <p>The preview system is designed for a CapCut-style layered editor:</p>
+          <ol style="margin:0.65rem 0">
+            <li><code>&lt;MediaEnginePreview&gt;</code> renders video tracks natively at ~30 fps — filters, transitions, and speed are applied in hardware, matching the export output exactly.</li>
+            <li><code>useCompositionOverlays(config, currentTime)</code> returns the active text and image clips with all transforms resolved, ready for your Skia or Reanimated overlay layer.</li>
+            <li>The same <code>CompositionConfig</code> drives both layers and the final export — no coordinate conversion needed.</li>
+          </ol>
+<pre><code>import { useRef, useState } from 'react';
+import { View, StyleSheet } from 'react-native';
+import {
+  MediaEnginePreview,
+  useCompositionOverlays,
+} from '@projectyoked/expo-media-engine';
 
-<pre>import { MediaEnginePreview } from '@projectyoked/expo-media-engine';</pre>
+export function CompositionEditor({ config }) {
+  const previewRef  = useRef(null);
+  const [time, setTime]         = useState(0);
+  const [playing, setPlaying]   = useState(false);
 
-    <h3>Props</h3>
-    <table class="prop-table">
-      <thead><tr><th>Prop</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>config</code></td><td>CompositionConfig</td><td>The composition to preview. Required.</td></tr>
-        <tr><td><code>isPlaying</code></td><td>boolean</td><td>Play / pause. Default: <code>false</code>.</td></tr>
-        <tr><td><code>muted</code></td><td>boolean</td><td>Mute audio. Default: <code>false</code>.</td></tr>
-        <tr><td><code>currentTime</code></td><td>number</td><td>Seek position in seconds. Update while paused to scrub the timeline.</td></tr>
-        <tr><td><code>style</code></td><td>ViewStyle</td><td>Standard React Native style prop.</td></tr>
-      </tbody>
-    </table>
+  // Active text/image clips with resolved x/y/scale/rotation/opacity
+  const overlays = useCompositionOverlays(config, time);
 
-    <h3>Events</h3>
-    <table class="prop-table">
-      <thead><tr><th>Event</th><th>Payload</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>onLoad</code></td><td><code>{ duration: number }</code></td><td>Fired once the engine is ready to play.</td></tr>
-        <tr><td><code>onTimeUpdate</code></td><td><code>{ currentTime: number }</code></td><td>Fires at ~30 fps during playback.</td></tr>
-        <tr><td><code>onPlaybackEnded</code></td><td><code>{}</code></td><td>Fired when playback reaches the end of the timeline.</td></tr>
-        <tr><td><code>onError</code></td><td><code>{ message: string }</code></td><td>Fired on fatal engine errors.</td></tr>
-      </tbody>
-    </table>
+  return (
+    &lt;View style={StyleSheet.absoluteFill}&gt;
+      {/* Native video layer: filters, transitions, speed */}
+      &lt;MediaEnginePreview
+        ref={previewRef}
+        config={config}
+        isPlaying={playing}
+        onTimeUpdate={e =&gt; setTime(e.nativeEvent.currentTime)}
+        onLoad={e =&gt; console.log('Duration:', e.nativeEvent.duration)}
+        style={StyleSheet.absoluteFill}
+      /&gt;
 
-    <h3>Ref</h3>
-    <p><code>previewRef.current.seekTo(seconds)</code> — imperative seek. Alternative to updating the <code>currentTime</code> prop.</p>
+      {/* JS overlay layer: Skia / Reanimated drag-and-resize */}
+      {overlays.map(o =&gt; (
+        &lt;InteractiveOverlay key={o.id} overlay={o} /&gt;
+      ))}
+    &lt;/View&gt;
+  );
+}</code></pre>
+        </section>
 
-    <!-- ──────────────────────── OVERLAYS HOOK ──────────────────────────── -->
-    <h2 id="overlays-hook" class="section-divider">useCompositionOverlays</h2>
-    <p>Returns the text and image clips active at <code>currentTime</code>, with all transforms and keyframe animations resolved. Memoized — only recalculates when <code>config</code> or <code>currentTime</code> changes.</p>
+        <!-- ============ PREVIEW COMPONENT ============ -->
+        <section class="doc-section" id="preview-component" data-section>
+          <div class="section-heading">
+            <div class="section-icon">📺</div>
+            <h2>MediaEnginePreview</h2>
+          </div>
+          <p>A native Expo view that renders video and audio at ~30 fps using the export-accurate pipeline.</p>
+<pre><code>import { MediaEnginePreview } from '@projectyoked/expo-media-engine';</code></pre>
 
-<pre>import { useCompositionOverlays } from '@projectyoked/expo-media-engine';
+          <h3>Props</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Prop</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>config</code></td><td>CompositionConfig</td><td>The composition to preview. Required.</td></tr>
+                <tr><td><code>isPlaying</code></td><td>boolean</td><td>Play / pause state. Default: <code>false</code>.</td></tr>
+                <tr><td><code>muted</code></td><td>boolean</td><td>Mute audio. Default: <code>false</code>.</td></tr>
+                <tr><td><code>currentTime</code></td><td>number</td><td>Seek position in seconds. Update while paused to scrub the timeline.</td></tr>
+                <tr><td><code>style</code></td><td>ViewStyle</td><td>Standard React Native style prop.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Events</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Event</th><th>Payload</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>onLoad</code></td><td><code>{ duration: number }</code></td><td>Fired once the engine is ready.</td></tr>
+                <tr><td><code>onTimeUpdate</code></td><td><code>{ currentTime: number }</code></td><td>Fires at ~30 fps during playback.</td></tr>
+                <tr><td><code>onPlaybackEnded</code></td><td><code>{}</code></td><td>Fired when playback reaches the end.</td></tr>
+                <tr><td><code>onError</code></td><td><code>{ message: string }</code></td><td>Fired on fatal engine errors.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Ref</h3>
+          <p><code>previewRef.current.seekTo(seconds)</code> — imperative seek. Alternative to setting the <code>currentTime</code> prop.</p>
+        </section>
+
+        <!-- ============ OVERLAYS HOOK ============ -->
+        <section class="doc-section" id="overlays-hook" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🧩</div>
+            <h2>useCompositionOverlays</h2>
+          </div>
+          <p>Returns all text and image clips active at <code>currentTime</code>, with transforms and keyframe animations resolved. Memoized — only recalculates when <code>config</code> or <code>currentTime</code> changes.</p>
+<pre><code>import { useCompositionOverlays } from '@projectyoked/expo-media-engine';
 
 const overlays = useCompositionOverlays(config, currentTime);
-// overlays: ActiveOverlay[]</pre>
+// returns: ActiveOverlay[]</code></pre>
 
-    <h3>ActiveOverlay fields</h3>
-    <table class="prop-table">
-      <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>id</code></td><td>string</td><td>Stable key: <code>"track-{n}-clip-{n}"</code>.</td></tr>
-        <tr><td><code>type</code></td><td><code>'text'</code> | <code>'image'</code></td><td>Clip type.</td></tr>
-        <tr><td><code>x</code> / <code>y</code></td><td>number</td><td>Resolved center position, 0–1.</td></tr>
-        <tr><td><code>scale</code></td><td>number</td><td>Resolved scale multiplier.</td></tr>
-        <tr><td><code>rotation</code></td><td>number</td><td>Resolved rotation in degrees.</td></tr>
-        <tr><td><code>opacity</code></td><td>number</td><td>Resolved opacity 0–1.</td></tr>
-        <tr><td><code>localTime</code></td><td>number</td><td>Seconds elapsed since this clip's <code>startTime</code>.</td></tr>
-        <tr><td><code>text</code></td><td>string</td><td>Text content (text clips).</td></tr>
-        <tr><td><code>uri</code></td><td>string</td><td>Image file URI (image clips).</td></tr>
-        <tr><td><code>color</code>, <code>fontSize</code>, <code>fontWeight</code>, <code>shadowColor</code>, <code>strokeColor</code>, …</td><td>various</td><td>All text style fields, resolved.</td></tr>
-      </tbody>
-    </table>
+          <h3>ActiveOverlay fields</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>id</code></td><td>string</td><td>Stable key: <code>"track-{n}-clip-{n}"</code>.</td></tr>
+                <tr><td><code>type</code></td><td><code>'text'</code> | <code>'image'</code></td><td>Clip type.</td></tr>
+                <tr><td><code>x</code> / <code>y</code></td><td>number</td><td>Resolved center position 0–1.</td></tr>
+                <tr><td><code>scale</code></td><td>number</td><td>Resolved scale multiplier.</td></tr>
+                <tr><td><code>rotation</code></td><td>number</td><td>Resolved rotation in degrees.</td></tr>
+                <tr><td><code>opacity</code></td><td>number</td><td>Resolved opacity 0–1.</td></tr>
+                <tr><td><code>localTime</code></td><td>number</td><td>Seconds elapsed since this clip's <code>startTime</code>.</td></tr>
+                <tr><td><code>text</code></td><td>string</td><td>Text content (text clips only).</td></tr>
+                <tr><td><code>uri</code></td><td>string</td><td>Image file URI (image clips only).</td></tr>
+                <tr><td><code>color</code>, <code>fontSize</code>, <code>fontWeight</code>, <code>shadowColor</code>, <code>strokeColor</code>, …</td><td>various</td><td>All text style fields, resolved from <code>textStyle</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-    <!-- ──────────────────────────── STITCH ─────────────────────────────── -->
-    <h2 id="stitch" class="section-divider">stitchVideos</h2>
-    <p>Concatenate videos end-to-end in the order provided. Uses a fast passthrough path where possible; falls back to full transcoding if sources are incompatible.</p>
-
-<pre>await MediaEngine.stitchVideos(
+        <!-- ============ STITCH ============ -->
+        <section class="doc-section" id="stitch" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🔗</div>
+            <h2>stitchVideos</h2>
+          </div>
+          <p>Concatenate videos end-to-end in the order provided. Uses a fast passthrough path where possible; falls back to full transcoding if sources are incompatible.</p>
+<pre><code>await MediaEngine.stitchVideos(
   ['file:///clip1.mp4', 'file:///clip2.mp4', 'file:///clip3.mp4'],
   'file:///output.mp4'
-);</pre>
+);</code></pre>
+        </section>
 
-    <!-- ─────────────────────────── COMPRESS ────────────────────────────── -->
-    <h2 id="compress" class="section-divider">compressVideo</h2>
-    <p>Re-encode a video at a lower bitrate or resolution. Useful for reducing file size before upload.</p>
-
-<pre>await MediaEngine.compressVideo({
+        <!-- ============ COMPRESS ============ -->
+        <section class="doc-section" id="compress" data-section>
+          <div class="section-heading">
+            <div class="section-icon">📉</div>
+            <h2>compressVideo</h2>
+          </div>
+          <p>Re-encode a video at a lower bitrate or resolution. Useful for reducing file size before upload.</p>
+<pre><code>await MediaEngine.compressVideo({
   inputUri:  'file:///input.mp4',
   outputUri: 'file:///compressed.mp4',
-  quality:   'medium',   // 'low' (1 Mbps) | 'medium' (4 Mbps) | 'high' (8 Mbps)
-  // Or set explicitly:
-  // bitrate: 3_000_000,
-  // maxWidth: 1280,
-  // maxHeight: 720,
-  codec: 'h265',         // Android: H.265 (~40% smaller than H.264 at same quality)
-});</pre>
+  quality:   'medium',   // 'low' | 'medium' | 'high'
+  codec:     'h265',     // Android: ~40% smaller than H.264
+});</code></pre>
 
-    <table class="prop-table">
-      <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>inputUri</code></td><td>string</td><td>Source file. Required.</td></tr>
-        <tr><td><code>outputUri</code></td><td>string</td><td>Destination file. Required.</td></tr>
-        <tr><td><code>quality</code></td><td>string</td><td><code>'low'</code> | <code>'medium'</code> | <code>'high'</code>. Ignored if <code>bitrate</code> is set.</td></tr>
-        <tr><td><code>bitrate</code></td><td>number</td><td>Explicit video bitrate in bps.</td></tr>
-        <tr><td><code>audioBitrate</code></td><td>number</td><td>Audio bitrate in bps. Default: 128000.</td></tr>
-        <tr><td><code>width</code> / <code>height</code></td><td>number</td><td>Explicit output dimensions.</td></tr>
-        <tr><td><code>maxWidth</code> / <code>maxHeight</code></td><td>number</td><td>Constrain dimensions proportionally.</td></tr>
-        <tr><td><code>frameRate</code></td><td>number</td><td>Output frame rate.</td></tr>
-        <tr><td><code>codec</code></td><td>string</td><td><code>'h264'</code> | <code>'h265'</code> (Android only). Default: <code>'h264'</code>.</td></tr>
-      </tbody>
-    </table>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>inputUri</code></td><td>string</td><td>Source file. Required.</td></tr>
+                <tr><td><code>outputUri</code></td><td>string</td><td>Destination file. Required.</td></tr>
+                <tr><td><code>quality</code></td><td>string</td><td><code>'low'</code> (1 Mbps) | <code>'medium'</code> (4 Mbps) | <code>'high'</code> (8 Mbps). Ignored if <code>bitrate</code> is set.</td></tr>
+                <tr><td><code>bitrate</code></td><td>number</td><td>Explicit video bitrate in bps.</td></tr>
+                <tr><td><code>audioBitrate</code></td><td>number</td><td>Audio bitrate in bps. Default: 128000.</td></tr>
+                <tr><td><code>width</code> / <code>height</code></td><td>number</td><td>Explicit output dimensions.</td></tr>
+                <tr><td><code>maxWidth</code> / <code>maxHeight</code></td><td>number</td><td>Constrain dimensions proportionally.</td></tr>
+                <tr><td><code>frameRate</code></td><td>number</td><td>Output frame rate.</td></tr>
+                <tr><td><code>codec</code></td><td>string</td><td><code>'h264'</code> | <code>'h265'</code> (Android only). Default: <code>'h264'</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-    <!-- ─────────────────────────── UTILITIES ───────────────────────────── -->
-    <h2 id="utilities" class="section-divider">Utilities</h2>
+        <!-- ============ WAVEFORM ============ -->
+        <section class="doc-section" id="waveform" data-section>
+          <div class="section-heading">
+            <div class="section-icon">〰️</div>
+            <h2>getWaveform</h2>
+          </div>
+          <p>Returns a normalized array of RMS amplitude values (0–1) for waveform visualization.</p>
+<pre><code>const amplitudes = await MediaEngine.getWaveform('file:///audio.mp3', 200);
+// number[] of length 200</code></pre>
+        </section>
 
-    <h3 id="get-waveform">getWaveform</h3>
-    <p>Returns a normalized array of RMS amplitude values (0–1) for use in timeline waveform visualizations.</p>
-<pre>const amplitudes = await MediaEngine.getWaveform('file:///audio.mp3', 200);
-// number[] of length 200</pre>
+        <!-- ============ EXTRACT AUDIO ============ -->
+        <section class="doc-section" id="extract-audio" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🎵</div>
+            <h2>extractAudio</h2>
+          </div>
+          <p>Pulls the audio track from a video file and saves it as <code>.m4a</code>.</p>
+<pre><code>await MediaEngine.extractAudio('file:///video.mp4', 'file:///audio.m4a');</code></pre>
+        </section>
 
-    <h3 id="extract-audio">extractAudio</h3>
-    <p>Pulls the audio track from a video file and saves it as <code>.m4a</code>.</p>
-<pre>await MediaEngine.extractAudio('file:///video.mp4', 'file:///audio.m4a');</pre>
-
-    <h3>isAvailable</h3>
-    <p>Returns <code>true</code> if the native module is linked. Check before calling any other function if you need a graceful fallback (e.g. in Storybook or web).</p>
-<pre>if (!MediaEngine.isAvailable()) {
+        <!-- ============ IS AVAILABLE ============ -->
+        <section class="doc-section" id="is-available" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🔍</div>
+            <h2>isAvailable</h2>
+          </div>
+          <p>Returns <code>true</code> if the native module is linked. Check before calling any other function if you need a graceful fallback (e.g. in Storybook or web).</p>
+<pre><code>if (!MediaEngine.isAvailable()) {
   console.warn('Native module not linked — rebuild the dev client.');
-}</pre>
+}</code></pre>
+        </section>
 
-    <!-- ─────────────────────────── TYPESCRIPT ──────────────────────────── -->
-    <h2 id="typescript" class="section-divider">TypeScript</h2>
-    <p>All types ship with the package. The main types you'll use:</p>
-    <div class="tag-row">
-      <span class="tag">CompositionConfig</span>
-      <span class="tag">CompositeTrack</span>
-      <span class="tag">CompositeClip</span>
-      <span class="tag">TextStyle</span>
-      <span class="tag">FilterType</span>
-      <span class="tag">TransitionType</span>
-      <span class="tag">VolumeEnvelope</span>
-      <span class="tag">VolumeKeyframe</span>
-      <span class="tag">ClipAnimations</span>
-      <span class="tag">KeyframeValue</span>
-      <span class="tag">MediaEnginePreviewProps</span>
-      <span class="tag">MediaEnginePreviewRef</span>
-      <span class="tag">ActiveOverlay</span>
-      <span class="tag">CompressVideoConfig</span>
-    </div>
-    <p>Full source: <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts"><code>src/index.d.ts</code></a></p>
+        <!-- ============ TYPESCRIPT ============ -->
+        <section class="doc-section" id="typescript" data-section>
+          <div class="section-heading">
+            <div class="section-icon">🟦</div>
+            <h2>TypeScript types</h2>
+          </div>
+          <p>All types ship with the package. The main types you'll use:</p>
+          <div class="tag-row">
+            <span class="tag tag-accent">CompositionConfig</span>
+            <span class="tag">CompositeTrack</span>
+            <span class="tag">CompositeClip</span>
+            <span class="tag">TextStyle</span>
+            <span class="tag">FilterType</span>
+            <span class="tag">TransitionType</span>
+            <span class="tag">VolumeEnvelope</span>
+            <span class="tag">VolumeKeyframe</span>
+            <span class="tag">ClipAnimations</span>
+            <span class="tag">KeyframeValue</span>
+            <span class="tag tag-accent">MediaEnginePreviewProps</span>
+            <span class="tag">MediaEnginePreviewRef</span>
+            <span class="tag tag-accent">ActiveOverlay</span>
+            <span class="tag">CompressVideoConfig</span>
+          </div>
+          <p>Full source: <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts" target="_blank" rel="noopener"><code>src/index.d.ts</code></a></p>
+        </section>
 
-    <footer class="site">
-      <p><a href="../">Home</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/SirStig/projectyoked-expo-media-engine">GitHub</a></p>
-    </footer>
-  </main>
+        <footer class="doc-footer">
+          <a href="../">Home</a>
+          <a href="../changelog.html">Changelog</a>
+          <a href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm</a>
+          <a href="../llms.txt">llms.txt</a>
+        </footer>
 
-  <script>
-    document.getElementById('doc-version').addEventListener('change', function () {
-      if (this.value) window.location.href = this.value;
-    });
-  </script>
+      </div>
+    </main>
+  </div>
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <script src="../assets/app.js"></script>
 </body>
 </html>
