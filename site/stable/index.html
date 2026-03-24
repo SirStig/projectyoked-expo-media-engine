@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stable (0.1.x) — Expo Media Engine</title>
+  <meta name="description" content="Documentation for @projectyoked/expo-media-engine stable release line (npm latest, 0.1.x): exportComposition, extractAudio, getWaveform.">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://sirstig.github.io/projectyoked-expo-media-engine/stable/">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <header class="site">
+    <div class="inner">
+      <a class="home" href="../">Expo Media Engine</a>
+      <nav class="site-nav">
+        <label for="doc-version" class="muted">Docs</label>
+        <select id="doc-version" class="version-select" aria-label="Documentation version">
+          <option value="../stable/" selected>Stable (0.1.x)</option>
+          <option value="../alpha/">Pre-release (1.0.0-alpha)</option>
+        </select>
+        <a class="nav-aux" href="../changelog.html">Changelog</a>
+      </nav>
+    </div>
+  </header>
+
+  <aside class="used-strip" aria-label="Production use">
+    <a class="used-strip__inner" href="https://www.projectyoked.com">
+      <img class="used-strip__logo" src="https://projectyoked.com/assets/project-yoked-logo.png" alt="Project Yoked" width="112" height="28">
+      <div class="used-strip__copy">
+        <span class="used-strip__label">Used in production</span>
+        <span class="used-strip__sub">Project Yoked — workout training app (iOS and Android)</span>
+      </div>
+    </a>
+  </aside>
+
+  <main class="wrap">
+    <div class="banner">
+      <strong>Stable line (0.1.x).</strong> This page covers the legacy API on npm tag <code>latest</code>. For the full feature set — multi-track composition, preview, filters, transitions, and more — see <a href="../alpha/">pre-release documentation</a>.
+    </div>
+
+    <h1>Stable documentation (0.1.x)</h1>
+
+    <h2>Install</h2>
+    <pre>npm install @projectyoked/expo-media-engine
+npx expo prebuild</pre>
+    <p class="muted">Requires a <a href="https://docs.expo.dev/develop/development-builds/introduction/">development build</a>. Expo Go is not supported.</p>
+
+    <h2>Requirements</h2>
+    <ul class="api-list">
+      <li>Expo SDK 49+</li>
+      <li><code>expo-modules-core</code> 1.0.0+</li>
+      <li>React Native 0.64+</li>
+      <li>iOS 13.4+, Android API 21+</li>
+    </ul>
+
+    <h2>API</h2>
+    <ul class="api-list">
+      <li><code>isAvailable()</code> — returns <code>true</code> if the native module is linked</li>
+      <li><code>extractAudio(videoUri, outputUri)</code> — pulls audio from a video to <code>.m4a</code></li>
+      <li><code>getWaveform(audioUri, samples?)</code> — normalized RMS amplitude array (0–1)</li>
+      <li><code>exportComposition(config)</code> — single-video export with text/emoji overlays and optional background music</li>
+    </ul>
+
+    <h2>exportComposition config</h2>
+    <p>Required: <code>videoPath</code>, <code>outputPath</code>. Quality via <code>quality</code> (<code>'low'</code> | <code>'medium'</code> | <code>'high'</code>) or an explicit <code>bitrate</code> in bps.</p>
+    <p>Overlay fields use parallel arrays: <code>textArray</code>, <code>textX</code>, <code>textY</code>, <code>textColors</code>, <code>textSizes</code>, <code>textStarts</code>, <code>textDurations</code>, and the equivalent <code>emoji*</code> fields. Audio mix: <code>musicPath</code>, <code>musicVolume</code>, <code>originalVolume</code>.</p>
+
+    <h2>TypeScript</h2>
+    <p>Types ship with the package. See <code>ExportCompositionConfig</code> in <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts"><code>src/index.d.ts</code></a>.</p>
+
+    <h2>Looking for more features?</h2>
+    <p>The pre-release line adds multi-track composition, real-time preview, filters, transitions, video stitching, compression, and full audio mixing. Install with <code>npm install @projectyoked/expo-media-engine@alpha</code> and read the <a href="../alpha/">pre-release documentation</a>.</p>
+
+    <footer class="site">
+      <p><a href="../">Home</a> · <a href="../changelog.html">Changelog</a></p>
+    </footer>
+  </main>
+
+  <script>
+    document.getElementById('doc-version').addEventListener('change', function () {
+      if (this.value) window.location.href = this.value;
+    });
+  </script>
+</body>
+</html>

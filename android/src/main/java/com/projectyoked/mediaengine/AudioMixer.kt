@@ -33,31 +33,18 @@ class AudioMixer(
         if (audioClips.isEmpty()) return null
 
         // --- Optimization: Single Track Bypass ---
+        // Bypass is only safe when:
+        //   - volume is exactly 1.0 (no gain change needed)
+        //   - startTime == 0.0 (no leading silence to insert)
+        //   - clipStart == 0.0 (no source trimming — returning raw file would include trimmed audio)
+        //   - fadeIn/fadeOut are both 0 (no envelope to apply)
         if (audioClips.size == 1) {
             val clip = audioClips[0].clip
-            if (clip.volume == 1.0f && clip.startTime == 0.0) {
-                // Check if duration matches source?
-                // If not trimming, we can just return source.
-                // Even if trimming, CompositeVideoComposer handles start/duration of the track.
-                // But AudioMixer returns a file that is expected to be STARTING at 0.
-                // If the clip starts at 5.0s in the timeline, AudioMixer should produce silence for
-                // 5s then audio?
-                // Wait. `AudioMixer` produces a file that REPLACES the audio track.
-                // `CompositeVideoComposer` then muxes it.
-                // If the track starts at 5s, the muxer expects the audio stream to start at 0 but
-                // be empty?
-                // No, `writeAudioUpTo` reads from the audio file.
-                // If I return the source file, it has audio starting at 0.
-                // If the Composition says "Audio starts at 5s", and I return a file...
-                // The `CompositeVideoComposer` logic (lines 194-211 of original, now modified in
-                // Passthrough)
-                // uses `audioMixerExtractor`.
-                // In `drainEncoder` logic (transcoding), it writes audio samples.
-                // Does it handle offset?
-                // `CompositeVideoComposer` expects `AudioMixer` to output a file that matches the
-                // TIMELINE.
-                // So if clip starts at 5s, the mixed file must have 5s silence.
-                // SO: I can ONLY bypass if `startTime == 0.0`.
+            val volumeIsUnity = kotlin.math.abs(clip.volume - 1.0f) < 0.001f
+            val noTimelineOffset = clip.startTime == 0.0
+            val noSourceTrim = clip.clipStart == 0.0
+            val noFades = clip.fadeInDuration == 0.0 && clip.fadeOutDuration == 0.0
+            if (volumeIsUnity && noTimelineOffset && noSourceTrim && noFades) {
                 Log.d(TAG, "AudioMixer Bypass: Returning source directly")
                 return clip.uri
             }
@@ -175,7 +162,7 @@ class AudioMixer(
                         )
                     }
 
-                    currentTimeUs += (bufferSize * usPerSample * channelCount / 2).toLong()
+                    currentTimeUs += (bufferSize * usPerSample).toLong()
                 } else {
                     if (!eosQueued) {
                         val inputIndex = encoder.dequeueInputBuffer(1000)
@@ -317,6 +304,24 @@ class AudioMixer(
 
         private fun computeVolume(timelineTimeUs: Long): Float {
             val pos = timelineTimeUs - (clip.startTime * 1_000_000).toLong()
+            val posSec = pos / 1_000_000.0
+
+            // Keyframe-based volume: linear interpolation between sorted keyframe values
+            if (clip.volumeKeyframes.isNotEmpty()) {
+                val kfs = clip.volumeKeyframes.sortedBy { it.first }
+                val keyframeVol = when {
+                    posSec <= kfs.first().first -> kfs.first().second
+                    posSec >= kfs.last().first  -> kfs.last().second
+                    else -> {
+                        val lo = kfs.last { it.first <= posSec }
+                        val hi = kfs.first { it.first > posSec }
+                        val t = ((posSec - lo.first) / (hi.first - lo.first)).toFloat()
+                        lo.second + t * (hi.second - lo.second)
+                    }
+                }
+                return keyframeVol * clip.volume
+            }
+
             val endUs = (clip.duration * 1_000_000).toLong()
             val fadeInUs = (clip.fadeInDuration * 1_000_000).toLong()
             val fadeOutUs = (clip.fadeOutDuration * 1_000_000).toLong()

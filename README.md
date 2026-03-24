@@ -1,383 +1,320 @@
 # @projectyoked/expo-media-engine
 
-[![npm version](https://badge.fury.io/js/@projectyoked%2Fexpo-media-engine.svg)](https://badge.fury.io/js/@projectyoked%2Fexpo-media-engine)
+[![npm](https://img.shields.io/npm/v/@projectyoked/expo-media-engine.svg)](https://www.npmjs.com/package/@projectyoked/expo-media-engine)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/SirStig/projectyoked-expo-media-engine/workflows/CI/badge.svg)](https://github.com/SirStig/projectyoked-expo-media-engine/actions)
-[![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey)](https://github.com/SirStig/projectyoked-expo-media-engine)
-[![Expo](https://img.shields.io/badge/Expo-49%2B-blue.svg)](https://expo.dev)
 
-**Professional video composition and editing for Expo apps.** Built with the Expo Modules API for high-performance native video processing with text/emoji overlays, audio extraction, and waveform generation.
+A hardware-accelerated video composition and editing engine for Expo. Built on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android), it gives you a full editing pipeline — real-time preview, multi-track composition, filters, transitions, audio mixing, and export — without proprietary SDKs or per-minute billing.
+
+---
 
 ## Features
 
-- **Multi-track composition**: `composeCompositeVideo` — video/audio/text tracks with clips, transforms, and timed text/emoji overlays
-- **Video stitching**: `stitchVideos` — concatenate multiple videos (passthrough when possible)
-- **Video compression**: `compressVideo` — reduce file size, resolution, or bitrate
-- **Legacy composition**: `exportComposition` — single-video + text/emoji overlays and audio mixing
-- **Audio extraction**: Extract audio tracks from video files
-- **Waveform generation**: Generate amplitude waveforms from audio files
-- **Hardware accelerated**: AVFoundation (iOS), MediaCodec/OpenGL (Android)
-- **Built for Expo**: Native Expo module with full TypeScript support
+- **Real-time preview** — Native `<MediaEnginePreview>` view renders your composition at ~30 fps using the exact same pipeline as the export engine, so what you see is what you get
+- **Multi-track composition** — Stack video, audio, image, and text tracks with per-clip transforms, timing, and blending
+- **9 filters** — Grayscale, sepia, vignette, invert, brightness, contrast, saturation, warm, cool — all with adjustable intensity
+- **8 transitions** — Crossfade, fade to black, slide (left/right/up/down), zoom in/out — with configurable duration
+- **Per-clip controls** — Opacity, playback speed, source trimming, position, scale, rotation, resize mode (cover/contain/stretch)
+- **Audio mixing** — Multiple audio tracks with per-clip volume, fade in/out, and keyframe-based volume automation
+- **Text & emoji overlays** — Full styling: font size, bold, color, shadow, stroke, background pill, timed visibility
+- **Image overlays** — Positioned, scaled, rotated, and timed image tracks
+- **Video stitching** — Fast concatenation using mp4parser (Android) or passthrough (iOS), with transcoding fallback
+- **Video compression** — Re-encode with H.264 or H.265, target bitrate/resolution, or quality presets
+- **Waveform generation** — Normalized RMS amplitude array from any audio file
+- **Audio extraction** — Pull audio from video to `.m4a`
+
+---
 
 ## Installation
 
-Default install gets the latest stable (0.1.x). To use the alpha (multi-track composition, stitching, compression), install the `alpha` tag:
-
 ```bash
-# Latest stable (0.1.x)
-npm install @projectyoked/expo-media-engine
-
-# Alpha (1.0.0-alpha-1)
 npm install @projectyoked/expo-media-engine@alpha
-```
-
-or with yarn:
-
-```bash
-yarn add @projectyoked/expo-media-engine
-yarn add @projectyoked/expo-media-engine@alpha
-```
-
-### Setup
-
-After installation, rebuild your Expo app:
-
-```bash
 npx expo prebuild
-npx expo run:ios    # or run:android
 ```
 
-> **Note**: This is an **Expo module** built with the Expo Modules API. It requires Expo SDK 49+ and will work in any Expo project (managed or bare workflow).
+This package requires a native build. Expo Go is not supported — use a [development build](https://docs.expo.dev/develop/development-builds/introduction/).
 
-### iOS
+**Requirements**
 
-For iOS-specific setup after prebuild:
+| | Minimum |
+|---|---|
+| Expo SDK | 49+ |
+| expo-modules-core | 1.0.0+ |
+| iOS | 13.4+ |
+| Android | API 21+ |
+| React Native | 0.64+ |
 
-```bash
-cd ios && pod install
-```
+---
 
-### Android  
+## Quick Start
 
-After prebuild, Android should be ready to run.
-
-## Requirements
-
-- **Expo SDK** 49+
-- **expo-modules-core** >= 1.0.0  
-- React Native 0.64+
-- React 16.13+
-- iOS 13.4+
-- Android SDK 21+ (API level 21)
-
-**Compatible with:**
-- ✅ Expo managed workflow
-- ✅ Expo bare workflow (after `npx expo prebuild`)
-- ✅ Development builds
-- ✅ EAS Build
-
-## Usage
-
-### Check Module Availability
+### Export a composition
 
 ```javascript
 import MediaEngine from '@projectyoked/expo-media-engine';
 
-if (MediaEngine.isAvailable()) {
-  // Module is loaded and ready
-}
-```
+const outputUri = await MediaEngine.composeCompositeVideo({
+  outputUri: `${FileSystem.cacheDirectory}output.mp4`,
+  width: 1080,
+  height: 1920,
+  frameRate: 30,
+  quality: 'high', // 'low' | 'medium' | 'high', or set bitrate explicitly
 
-### Extract Audio from Video
-
-```javascript
-const audioUri = await MediaEngine.extractAudio(
-  videoUri,      // Input video path
-  outputUri      // Output audio path (.m4a on iOS, .mp3 on Android)
-);
-```
-
-### Generate Audio Waveform
-
-```javascript
-const waveformData = await MediaEngine.getWaveform(
-  audioUri,      // Audio file path
-  100            // Number of samples
-);
-// Returns array of normalized amplitude values [0-1]
-```
-
-### Export Video with Overlays
-
-```javascript
-const config = {
-  videoPath: '/path/to/video.mp4',
-  outputPath: '/path/to/output.mp4',
-  duration: 10.5,  // Video duration in seconds
-  
-  // Text overlays
-  textArray: ['Hello', 'World'],
-  textX: [0.5, 0.5],              // X position (0-1, normalized)
-  textY: [0.3, 0.7],              // Y position (0-1, normalized)
-  textColors: ['#FFFFFF', '#FF0000'],
-  textSizes: [48, 36],
-  textStarts: [0, 3],             // Start time in seconds
-  textDurations: [3, 5],          // Duration in seconds
-  
-  // Emoji overlays
-  emojiArray: ['🔥', '💪'],
-  emojiX: [0.2, 0.8],
-  emojiY: [0.5, 0.5],
-  emojiSizes: [64, 64],
-  emojiStarts: [1, 4],
-  emojiDurations: [2, 3],
-  
-  // Audio mixing
-  musicPath: '/path/to/music.mp3',  // Optional background music
-  musicVolume: 0.5,                 // Music volume (0-1)
-  originalVolume: 0.8,              // Original video audio volume (0-1)
-};
-
-const outputPath = await MediaEngine.exportComposition(config);
-```
-
-### Stitch Multiple Videos
-
-```javascript
-const outputUri = await MediaEngine.stitchVideos(
-  ['/path/to/a.mp4', '/path/to/b.mp4'],
-  '/path/to/output.mp4'
-);
-```
-
-### Compress Video
-
-```javascript
-const outputUri = await MediaEngine.compressVideo({
-  inputUri: '/path/to/video.mp4',
-  outputUri: '/path/to/compressed.mp4',
-  quality: 'medium',
+  tracks: [
+    {
+      type: 'video',
+      clips: [
+        {
+          uri: 'file:///path/to/clip-a.mp4',
+          startTime: 0,
+          duration: 5,
+          filter: 'warm',
+          filterIntensity: 0.6,
+        },
+        {
+          uri: 'file:///path/to/clip-b.mp4',
+          startTime: 4,      // overlaps clip-a by 1s for the transition
+          duration: 5,
+          transition: 'crossfade',
+          transitionDuration: 1,
+        },
+      ],
+    },
+    {
+      type: 'audio',
+      clips: [
+        {
+          uri: 'file:///path/to/music.mp3',
+          startTime: 0,
+          duration: 9,
+          volume: 0.8,
+          fadeOutDuration: 1.5,
+        },
+      ],
+    },
+    {
+      type: 'text',
+      clips: [
+        {
+          text: 'Hello World',
+          startTime: 0.5,
+          duration: 3,
+          x: 0.5,
+          y: 0.15,
+          textStyle: {
+            fontSize: 52,
+            fontWeight: 'bold',
+            color: '#FFFFFF',
+            shadowColor: '#000000',
+            shadowRadius: 4,
+          },
+        },
+      ],
+    },
+  ],
 });
 ```
 
-## API Reference
+### Real-time preview
 
-### `extractAudio(videoUri: string, outputUri: string): Promise<string>`
-
-Extracts the audio track from a video file.
-
-**Parameters:**
-- `videoUri`: Path to the input video file
-- `outputUri`: Path for the output audio file
-
-**Returns:** Promise resolving to the output audio file path
-
----
-
-### `getWaveform(audioUri: string, samples: number): Promise<number[]>`
-
-Generates a waveform from an audio file.
-
-**Parameters:**
-- `audioUri`: Path to the audio file
-- `samples`: Number of amplitude samples to generate (default: 100)
-
-**Returns:** Promise resolving to array of normalized amplitude values (0-1)
-
----
-
-### `exportComposition(config: object): Promise<string>`
-
-Creates a video with text/emoji overlays and audio mixing.
-
-**Config Parameters:**
-- `videoPath` (string, required): Input video file path
-- `outputPath` (string, required): Output video file path
-- `duration` (number): Video duration in seconds
-- `textArray` (string[]): Array of text strings to overlay
-- `textX` (number[]): X positions (0-1, normalized to video width)
-- `textY` (number[]): Y positions (0-1, normalized to video height)
-- `textColors` (string[]): Hex color codes (e.g., '#FFFFFF')
-- `textSizes` (number[]): Font sizes in points
-- `textStarts` (number[]): Start times in seconds
-- `textDurations` (number[]): Display durations in seconds
-- `emojiArray` (string[]): Array of emoji strings
-- `emojiX` (number[]): X positions
-- `emojiY` (number[]): Y positions
-- `emojiSizes` (number[]): Emoji sizes in points
-- `emojiStarts` (number[]): Start times in seconds
-- `emojiDurations` (number[]): Display durations in seconds
-- `musicPath` (string): Path to background music file
-- `musicVolume` (number): Background music volume (0-1)
-- `originalVolume` (number): Original video audio volume (0-1)
-
-**Returns:** Promise resolving to the output video file path
-
----
-
-### `composeCompositeVideo(config: CompositionConfig): Promise<string>`
-
-Multi-track composition: video/audio/text tracks with clips, transforms (position, scale, rotation, resizeMode), and timed text/emoji overlays. Use for multi-clip timelines; supports smart passthrough when re-encoding is not needed.
-
-**Returns:** Promise resolving to the output video file path
-
----
-
-### `stitchVideos(videoPaths: string[], outputUri: string): Promise<string>`
-
-Concatenates multiple videos into one. Uses passthrough on iOS; on Android uses fast path when possible with transcoding fallback.
-
-**Returns:** Promise resolving to the output video file path
-
----
-
-### `compressVideo(config: object): Promise<string>`
-
-Compresses a video (bitrate/resolution). Config: `inputUri`, `outputUri`, optional `quality` ('low' | 'medium' | 'high') or `bitrate`.
-
-**Returns:** Promise resolving to the output video file path
-
----
-
-### `isAvailable(): boolean`
-
-Checks if the native module is properly loaded.
-
-**Returns:** `true` if module is available, `false` otherwise
-
-## Platform Differences
-
-### iOS
-- Uses AVFoundation for video processing
-- Audio output format: M4A
-- Supports all overlay features
-
-### Android
-- Uses MediaCodec for video processing
-- Audio output format: MP3
-- Supports all overlay features
-
-## Performance
-
-- Video processing is hardware-accelerated on both platforms
-- Text/emoji overlays are burned directly into the video
-- Typical processing speed: ~1x realtime (10 second video in ~10 seconds)
-
-## Development & Testing
-
-### Running Tests
-
-```bash
-# Run all tests
-npm test
-
-# Run tests with coverage
-npm run test:coverage
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run linting
-npm run lint
-
-# Run TypeScript type checking
-npm run typecheck
-
-# Run all validation checks
-npm run validate
-```
-
-### Building for Development
-
-This is a native module, so no JavaScript build step is required. For testing in a real app:
-
-**Expo Project:**
-```bash
-npx expo prebuild
-npx expo run:ios    # or run:android
-```
-
-**Bare React Native:**
-```bash
-npx pod-install     # iOS
-# Android auto-links
-```
-
-### Publishing
-
-Alpha releases are published under the `alpha` dist-tag so `latest` stays on the current stable (0.1.x). After bumping version to e.g. `1.0.0-alpha-1`:
-
-```bash
-npm run validate
-npm run publish:alpha
-```
-
-Users get stable with `npm install @projectyoked/expo-media-engine` and alpha with `npm install @projectyoked/expo-media-engine@alpha`.
-
-### TypeScript Support
-
-This package includes TypeScript definitions. Import with full type safety:
-
-```typescript
-import MediaEngine, { ExportCompositionConfig } from '@projectyoked/expo-media-engine';
-
-const config: ExportCompositionConfig = {
-  videoPath: '/path/to/video.mp4',
-  outputPath: '/path/to/output.mp4',
-  // ... TypeScript will autocomplete and validate all options
-};
-```
-
-## Error Handling
+The preview view renders the video layer natively. Text, image, and emoji overlays are returned by `useCompositionOverlays` so your Skia or gesture layer can make them interactive — same coordinate space, no translation required.
 
 ```javascript
-try {
-  const output = await MediaEngine.exportComposition(config);
-} catch (error) {
-  console.error('Export failed:', error.message);
+import { useRef, useState } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { MediaEnginePreview, useCompositionOverlays } from '@projectyoked/expo-media-engine';
+
+export function CompositionEditor({ config }) {
+  const previewRef = useRef(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying]     = useState(false);
+
+  // Active text/image clips at the current playback position,
+  // with resolved x/y/scale/rotation/opacity — feed directly to Skia
+  const overlays = useCompositionOverlays(config, currentTime);
+
+  return (
+    <View style={styles.container}>
+      {/* Native video layer — filters, transitions, speed all applied here */}
+      <MediaEnginePreview
+        ref={previewRef}
+        config={config}
+        isPlaying={isPlaying}
+        onTimeUpdate={e => setCurrentTime(e.nativeEvent.currentTime)}
+        onLoad={e => console.log('Duration:', e.nativeEvent.duration)}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Interactive overlay layer — render with Skia, Reanimated, or plain RN */}
+      {overlays.map(overlay => (
+        <InteractiveOverlay
+          key={overlay.id}
+          overlay={overlay}
+          onMove={(id, x, y) => { /* update config */ }}
+        />
+      ))}
+    </View>
+  );
 }
 ```
 
-Common errors:
-- `"MediaEngine unavailable"`: Module not loaded (check installation)
-- Invalid file paths
-- Unsupported video formats
-- Insufficient device storage
+### Other operations
 
-## License
+```javascript
+import MediaEngine from '@projectyoked/expo-media-engine';
 
-MIT © [ProjectYoked](https://github.com/SirStig/projectyoked-expo-media-engine)
+// Stitch videos end-to-end
+await MediaEngine.stitchVideos(
+  ['file:///clip1.mp4', 'file:///clip2.mp4'],
+  'file:///output.mp4'
+);
 
-See [LICENSE](LICENSE) for more information.
+// Compress (e.g. before upload)
+await MediaEngine.compressVideo({
+  inputUri:  'file:///input.mp4',
+  outputUri: 'file:///compressed.mp4',
+  quality:   'medium',   // or set bitrate / maxWidth / maxHeight explicitly
+  codec:     'h265',     // Android only; iOS uses H.264
+});
 
-## Contributing
+// Waveform for a timeline scrubber
+const amplitudes = await MediaEngine.getWaveform('file:///audio.mp3', 200);
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
-
-## Security
-
-For security issues, please see our [Security Policy](SECURITY.md).
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for release history.
-
-## Links
-
-- [npm Package](https://www.npmjs.com/package/@projectyoked/expo-media-engine)
-- [GitHub Repository](https://github.com/SirStig/projectyoked-expo-media-engine)
-- [Issues](https://github.com/SirStig/projectyoked-expo-media-engine/issues)
-- [Pull Requests](https://github.com/SirStig/projectyoked-expo-media-engine/pulls)
-- [Expo Documentation](https://docs.expo.dev)
-
-## Support
-
-If you like this project, please consider:
-- ⭐ Starring the repository
-- 🐛 Reporting bugs
-- 💡 Suggesting new features
-- 🤝 Contributing code
+// Extract audio from video
+await MediaEngine.extractAudio('file:///video.mp4', 'file:///audio.m4a');
+```
 
 ---
 
-Made with ❤️ by ProjectYoked | Built with Expo Modules API
+## API Reference
+
+### `MediaEngine` (default export)
+
+| Function | Description |
+|---|---|
+| `composeCompositeVideo(config)` | Render a multi-track composition to a video file |
+| `stitchVideos(paths, outputUri)` | Concatenate videos sequentially |
+| `compressVideo(config)` | Re-encode a video at lower bitrate or resolution |
+| `getWaveform(uri, samples?)` | Normalized amplitude array (0–1) for audio visualization |
+| `extractAudio(videoUri, outputUri)` | Extract audio track to `.m4a` |
+| `exportComposition(config)` | Legacy single-video + overlay export |
+| `isAvailable()` | Returns `false` if the native module is not linked |
+
+### `MediaEnginePreview` (named export)
+
+A native view component. Renders video tracks with all filters and transitions applied.
+
+| Prop | Type | Description |
+|---|---|---|
+| `config` | `CompositionConfig` | The composition to render |
+| `isPlaying` | `boolean` | Play / pause |
+| `muted` | `boolean` | Mute audio |
+| `currentTime` | `number` | Seek position in seconds (controlled scrub while paused) |
+| `onLoad` | `({ duration })` | Fired once the engine is ready |
+| `onTimeUpdate` | `({ currentTime })` | Fires ~30 fps during playback |
+| `onPlaybackEnded` | `()` | Fired when playback reaches the end |
+| `onError` | `({ message })` | Fired on fatal errors |
+
+Ref: `previewRef.current.seekTo(seconds)` for imperative seeking.
+
+### `useCompositionOverlays(config, currentTime)`
+
+Returns `ActiveOverlay[]` — the text and image clips active at `currentTime`, with all transforms and keyframe animations resolved. Use this to render an interactive overlay layer in Skia, Reanimated, or plain React Native views.
+
+Each `ActiveOverlay` includes: `id`, `type`, `x`, `y`, `scale`, `rotation`, `opacity`, `text`, `textStyle`, `uri`, `startTime`, `duration`, and all individual text style fields.
+
+---
+
+## Clip Properties
+
+All clip types share these base properties:
+
+| Property | Type | Description |
+|---|---|---|
+| `uri` | `string` | File URI (`file://...`) |
+| `startTime` | `number` | When this clip appears on the timeline (seconds) |
+| `duration` | `number` | How long it plays (seconds) |
+| `x` / `y` | `number` | Normalized position 0–1 (center of clip) |
+| `scale` | `number` | Size multiplier (1.0 = original) |
+| `rotation` | `number` | Degrees, clockwise |
+| `opacity` | `number` | Transparency 0–1 |
+| `clipStart` | `number` | Trim start within the source file (seconds) |
+| `clipEnd` | `number` | Trim end within the source file (-1 = full) |
+| `speed` | `number` | Playback speed (0.5 = slow-mo, 2.0 = fast-forward) |
+| `resizeMode` | `string` | `'cover'` \| `'contain'` \| `'stretch'` |
+| `filter` | `FilterType` | One of 9 filter types |
+| `filterIntensity` | `number` | Filter strength 0–1 |
+| `transition` | `TransitionType` | Transition applied at the end of this clip |
+| `transitionDuration` | `number` | Transition window in seconds |
+| `volume` | `number` | Audio volume 0–1 (audio/video clips) |
+| `fadeInDuration` | `number` | Audio fade in (seconds) |
+| `fadeOutDuration` | `number` | Audio fade out (seconds) |
+| `volumeEnvelope` | `VolumeEnvelope` | Keyframe-based volume automation |
+| `animations` | `ClipAnimations` | Keyframe arrays for x, y, scale, rotation, opacity |
+
+Text clips additionally accept `text`, `textStyle` (or flat `color`, `fontSize`, etc.).
+
+---
+
+## Architecture
+
+```
+JavaScript (src/)
+    │
+    ├── composeCompositeVideo()   ─────────────────────────────────┐
+    ├── MediaEnginePreview             ← native view (ExpoView)    │
+    └── useCompositionOverlays         ← JS hook (overlay data)   │
+                                                                   │
+iOS (AVFoundation)                    Android (MediaCodec + OpenGL ES 2.0)
+    │                                     │
+    ├── AVMutableComposition             ├── CompositeVideoComposer
+    ├── MediaEngineCompositor            │       MediaExtractor → MediaCodec (decode)
+    │   (CIFilter per frame)            │       → SurfaceTexture → OpenGL (render)
+    ├── AVPlayer (preview)              │       → MediaCodec (encode) → MediaMuxer
+    └── AVAssetExportSession            ├── RenderEngine  (preview + export render logic)
+        (export)                        ├── TextureRenderer  (GLSL shaders, filters)
+                                        ├── AudioMixer  (PCM mixing, volume keyframes)
+                                        └── PreviewEngine  (EGL loop, 30 fps playback)
+```
+
+**Smart passthrough** — both platforms detect when re-encoding can be skipped (single clip, no transforms, no filters) and use a zero-copy path for maximum speed.
+
+---
+
+## Development
+
+```bash
+npm run validate        # lint + typecheck + tests
+npm run lint            # ESLint only
+npm run typecheck       # TypeScript (tsc --noEmit)
+npm test                # Jest
+npm run test:coverage   # coverage report
+```
+
+There is no build step — the package is distributed as source.
+
+---
+
+## Background
+
+Developed at [Project Yoked LLC](https://www.projectyoked.com) for the Project Yoked fitness app. We open-sourced it under MIT so other teams can use the same native media stack without proprietary SDKs or per-minute video APIs.
+
+<p align="left"><a href="https://www.projectyoked.com"><img src="https://projectyoked.com/assets/project-yoked-logo.png" alt="Project Yoked" width="240"></a></p>
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). All contributions are welcome.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a full history of changes by release.
+
+## License
+
+MIT © Project Yoked LLC

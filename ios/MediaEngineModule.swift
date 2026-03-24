@@ -1,7 +1,224 @@
 
 import ExpoModulesCore
 import AVFoundation
+import CoreImage
 import UIKit
+
+// MARK: - CIFilter Custom Video Compositor
+
+/// Custom AVVideoCompositionInstruction carrying per-clip filter/opacity data.
+class MediaEngineInstruction: NSObject, AVVideoCompositionInstructionProtocol {
+    var timeRange: CMTimeRange
+    var enablePostProcessing: Bool = true
+    var containsTweening: Bool = false
+    var requiredSourceTrackIDs: [NSValue]?
+    var passthroughTrackID: CMPersistentTrackID = kCMPersistentTrackID_Invalid
+
+    let trackID: Int32
+    let filterType: String
+    let filterIntensity: Float
+    let opacity: Float
+    // Transition support
+    let transitionTrackID: Int32    // 0 = no transition
+    let transitionProgress: Float   // 0..1
+    let transitionType: String
+
+    init(timeRange: CMTimeRange,
+         trackID: Int32,
+         filterType: String = "none",
+         filterIntensity: Float = 1.0,
+         opacity: Float = 1.0,
+         transitionTrackID: Int32 = 0,
+         transitionProgress: Float = 0,
+         transitionType: String = "crossfade") {
+        self.timeRange = timeRange
+        self.trackID = trackID
+        self.filterType = filterType
+        self.filterIntensity = filterIntensity
+        self.opacity = opacity
+        self.transitionTrackID = transitionTrackID
+        self.transitionProgress = transitionProgress
+        self.transitionType = transitionType
+        var ids: [NSValue] = [NSValue(cmPersistentTrackID: trackID)]
+        if transitionTrackID > 0 {
+            ids.append(NSValue(cmPersistentTrackID: transitionTrackID))
+        }
+        self.requiredSourceTrackIDs = ids
+    }
+}
+
+/// Custom compositor that applies CIFilters, opacity, and transitions per frame.
+class MediaEngineCompositor: NSObject, AVVideoCompositing {
+    var sourcePixelBufferAttributes: [String: Any]? = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
+    ]
+    var requiredPixelBufferAttributesForRenderContext: [String: Any] = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
+    ]
+
+    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+
+    func renderContextChanged(_ newContext: AVVideoCompositionRenderContext) {}
+    func cancelAllPendingVideoCompositionRequests() {}
+
+    func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
+        guard let instruction = request.videoCompositionInstruction as? MediaEngineInstruction,
+              let srcBuffer = request.sourceFrame(byTrackID: instruction.trackID) else {
+            request.finish(with: NSError(domain: "MediaEngineCompositor", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing source frame"]))
+            return
+        }
+
+        var output = CIImage(cvPixelBuffer: srcBuffer)
+
+        // 1. Apply filter
+        output = applyFilter(output, type: instruction.filterType, intensity: instruction.filterIntensity)
+
+        // 2. Apply opacity via alpha multiply
+        if instruction.opacity < 1.0 {
+            output = output.applyingFilter("CIColorMatrix", parameters: [
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: CGFloat(instruction.opacity))
+            ])
+        }
+
+        // 3. Apply transition if a second track is available
+        if instruction.transitionTrackID > 0, instruction.transitionProgress > 0,
+           let transBuffer = request.sourceFrame(byTrackID: instruction.transitionTrackID) {
+            let transImage = CIImage(cvPixelBuffer: transBuffer)
+            output = applyTransition(from: output, to: transImage,
+                                     type: instruction.transitionType,
+                                     progress: instruction.transitionProgress,
+                                     size: output.extent.size)
+        }
+
+        guard let outBuffer = request.renderContext.newPixelBuffer() else {
+            request.finish(with: NSError(domain: "MediaEngineCompositor", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "No output buffer"]))
+            return
+        }
+        ciContext.render(output, to: outBuffer)
+        request.finish(withComposedVideoFrame: outBuffer)
+    }
+
+    // MARK: Filter
+
+    private func applyFilter(_ image: CIImage, type: String, intensity: Float) -> CIImage {
+        let i = CGFloat(intensity)
+        switch type {
+        case "grayscale":
+            guard let f = CIFilter(name: "CIPhotoEffectMono") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            let mono = f.outputImage ?? image
+            return image.applyingFilter("CIDissolveTransition", parameters: [
+                "inputTargetImage": mono, "inputTime": i
+            ])
+        case "sepia":
+            guard let f = CIFilter(name: "CISepiaTone") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            f.setValue(i, forKey: kCIInputIntensityKey)
+            return f.outputImage ?? image
+        case "vignette":
+            guard let f = CIFilter(name: "CIVignette") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            f.setValue(i * 2.0, forKey: kCIInputIntensityKey)
+            f.setValue(1.0, forKey: kCIInputRadiusKey)
+            return f.outputImage ?? image
+        case "invert":
+            guard let f = CIFilter(name: "CIColorInvert") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            let inv = f.outputImage ?? image
+            return image.applyingFilter("CIDissolveTransition", parameters: [
+                "inputTargetImage": inv, "inputTime": i
+            ])
+        case "brightness":
+            guard let f = CIFilter(name: "CIColorControls") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            f.setValue((i - 0.5) * 2.0, forKey: kCIInputBrightnessKey) // -1..1
+            return f.outputImage ?? image
+        case "contrast":
+            guard let f = CIFilter(name: "CIColorControls") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            f.setValue(i * 2.0, forKey: kCIInputContrastKey)            // 0..2 (1=normal)
+            return f.outputImage ?? image
+        case "saturation":
+            guard let f = CIFilter(name: "CIColorControls") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            f.setValue(i * 2.0, forKey: kCIInputSaturationKey)          // 0..2 (1=normal)
+            return f.outputImage ?? image
+        case "warm":
+            guard let f = CIFilter(name: "CITemperatureAndTint") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            f.setValue(CIVector(x: 6500, y: 0), forKey: "inputNeutral")
+            f.setValue(CIVector(x: 6500 + i * 2000, y: 0), forKey: "inputTargetNeutral")
+            return f.outputImage ?? image
+        case "cool":
+            guard let f = CIFilter(name: "CITemperatureAndTint") else { return image }
+            f.setValue(image, forKey: kCIInputImageKey)
+            f.setValue(CIVector(x: 6500, y: 0), forKey: "inputNeutral")
+            f.setValue(CIVector(x: 6500 - i * 2000, y: 0), forKey: "inputTargetNeutral")
+            return f.outputImage ?? image
+        default:
+            return image
+        }
+    }
+
+    // MARK: Transitions
+
+    private func applyTransition(from outgoing: CIImage, to incoming: CIImage,
+                                  type: String, progress: Float, size: CGSize) -> CIImage {
+        let p = CGFloat(progress)
+        switch type {
+        case "crossfade":
+            return outgoing.applyingFilter("CIDissolveTransition", parameters: [
+                "inputTargetImage": incoming, "inputTime": p
+            ])
+        case "fade":
+            // Fade to black then back
+            let black = CIImage(color: CIColor.black).cropped(to: outgoing.extent)
+            if p < 0.5 {
+                return outgoing.applyingFilter("CIDissolveTransition", parameters: [
+                    "inputTargetImage": black, "inputTime": p * 2
+                ])
+            } else {
+                return black.applyingFilter("CIDissolveTransition", parameters: [
+                    "inputTargetImage": incoming, "inputTime": (p - 0.5) * 2
+                ])
+            }
+        case "slide-left":
+            let offset = CGAffineTransform(translationX: -size.width * p, y: 0)
+            let inOffset = CGAffineTransform(translationX: size.width * (1 - p), y: 0)
+            return outgoing.transformed(by: offset).composited(over: incoming.transformed(by: inOffset))
+        case "slide-right":
+            let offset = CGAffineTransform(translationX: size.width * p, y: 0)
+            let inOffset = CGAffineTransform(translationX: -size.width * (1 - p), y: 0)
+            return outgoing.transformed(by: offset).composited(over: incoming.transformed(by: inOffset))
+        case "zoom-in":
+            let scale = 1.0 + p * 0.3
+            let scaleT = CGAffineTransform(scaleX: scale, y: scale)
+                .translatedBy(x: -size.width * (scale - 1) / 2, y: -size.height * (scale - 1) / 2)
+            return outgoing.transformed(by: scaleT)
+                           .applyingFilter("CIDissolveTransition", parameters: [
+                               "inputTargetImage": incoming, "inputTime": p
+                           ])
+        case "zoom-out":
+            let scale = max(0.01, 1.0 - p * 0.3)
+            let scaleT = CGAffineTransform(scaleX: scale, y: scale)
+                .translatedBy(x: size.width * (1 - scale) / 2, y: size.height * (1 - scale) / 2)
+            return outgoing.transformed(by: scaleT)
+                           .applyingFilter("CIDissolveTransition", parameters: [
+                               "inputTargetImage": incoming, "inputTime": p
+                           ])
+        default:
+            return outgoing.applyingFilter("CIDissolveTransition", parameters: [
+                "inputTargetImage": incoming, "inputTime": p
+            ])
+        }
+    }
+}
+
+// MARK: - Module
 
 public class MediaEngineModule: Module {
     public func definition() -> ModuleDefinition {
@@ -40,31 +257,53 @@ public class MediaEngineModule: Module {
             let audioURL = URL(fileURLWithPath: audioUri.replacingOccurrences(of: "file://", with: ""))
             let file = try AVAudioFile(forReading: audioURL)
             let format = file.processingFormat
-            let frameCount = UInt32(file.length)
+            let totalFrames = AVAudioFrameCount(file.length)
 
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            // Stream in fixed-size chunks to avoid loading the entire file into RAM.
+            // A 3-minute stereo 44.1kHz file is ~63MB as a contiguous float buffer.
+            let chunkSize: AVAudioFrameCount = 8192
+            guard let chunk = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkSize) else {
                 return []
             }
 
-            try file.read(into: buffer)
+            let framesPerSample = max(1, Int(totalFrames) / samples)
+            var result = [Float](repeating: 0, count: samples)
+            var sampleIndex = 0
+            var accumulated: Float = 0
+            var accumulatedCount = 0
+            var totalFramesRead = 0
 
-            let _ = Int(format.channelCount)
-            guard let floatData = buffer.floatChannelData?[0] else { return [] }
+            while totalFramesRead < Int(totalFrames) && sampleIndex < samples {
+                let framesToRead = min(chunkSize, AVAudioFrameCount(Int(totalFrames) - totalFramesRead))
+                do {
+                    try file.read(into: chunk, frameCount: framesToRead)
+                } catch {
+                    break
+                }
+                let framesRead = Int(chunk.frameLength)
+                if framesRead == 0 { break }
+                totalFramesRead += framesRead
 
-            let samplesPerPixel = Int(frameCount) / samples
-            var result: [Float] = []
-
-            for i in 0..<samples {
-                let start = i * samplesPerPixel
-                var rms: Float = 0
-                for j in 0..<samplesPerPixel {
-                    if start + j < Int(frameCount) {
-                        let sample = floatData[start + j]
-                        rms += sample * sample
+                guard let floatData = chunk.floatChannelData?[0] else { break }
+                for i in 0..<framesRead {
+                    let s = floatData[i]
+                    accumulated += s * s
+                    accumulatedCount += 1
+                    if accumulatedCount >= framesPerSample {
+                        let rms = sqrt(accumulated / Float(accumulatedCount))
+                        result[sampleIndex] = min(1.0, rms * 5.0)
+                        sampleIndex += 1
+                        accumulated = 0
+                        accumulatedCount = 0
+                        if sampleIndex >= samples { break }
                     }
                 }
-                rms = sqrt(rms / Float(samplesPerPixel))
-                result.append(min(1.0, rms * 5.0))
+            }
+
+            // Flush any remaining partial window into the last bucket
+            if accumulatedCount > 0 && sampleIndex < samples {
+                let rms = sqrt(accumulated / Float(accumulatedCount))
+                result[sampleIndex] = min(1.0, rms * 5.0)
             }
 
             return result
@@ -394,8 +633,9 @@ public class MediaEngineModule: Module {
                 let videoTracks = tracks.filter { ($0["type"] as? String) == "video" }
                 let audioTracks = tracks.filter { ($0["type"] as? String) == "audio" }
                 let textTracks = tracks.filter { ($0["type"] as? String) == "text" }
+                let imageTracks = tracks.filter { ($0["type"] as? String) == "image" }
 
-                if videoTracks.count == 1 && textTracks.isEmpty && audioTracks.isEmpty {
+                if videoTracks.count == 1 && textTracks.isEmpty && audioTracks.isEmpty && imageTracks.isEmpty {
                      let vTrack = videoTracks[0]
                      let clips = vTrack["clips"] as? [[String: Any]] ?? []
                      if clips.count == 1 {
@@ -459,16 +699,19 @@ public class MediaEngineModule: Module {
                         // Trimming: compute source range from clipStart/clipEnd
                         let clipStart = clip["clipStart"] as? Double ?? 0.0
                         let clipEndVal = clip["clipEnd"] as? Double ?? -1.0
+                        let speed = max(0.01, clip["speed"] as? Double ?? 1.0)
                         let clipStartCM = CMTime(seconds: clipStart, preferredTimescale: 600)
+                        let assetDuration = (try? await asset.load(.duration)) ?? CMTime(seconds: duration * speed, preferredTimescale: 600)
+
                         let sourceRange: CMTimeRange
                         if clipEndVal > 0 {
-                            let clipEndCM = CMTime(seconds: clipEndVal, preferredTimescale: 600)
+                            let clipEndCM = CMTime(seconds: clipEndVal * speed, preferredTimescale: 600)
                             sourceRange = CMTimeRange(start: clipStartCM, end: clipEndCM)
                         } else {
-                            let assetDuration = (try? await asset.load(.duration)) ?? CMTime(seconds: duration, preferredTimescale: 600)
+                            // Consume `duration * speed` worth of source content
                             let remaining = CMTimeSubtract(assetDuration, clipStartCM)
-                            let requestedDuration = CMTime(seconds: duration, preferredTimescale: 600)
-                            sourceRange = CMTimeRange(start: clipStartCM, duration: CMTimeMinimum(remaining, requestedDuration))
+                            let requestedSource = CMTime(seconds: duration * speed, preferredTimescale: 600)
+                            sourceRange = CMTimeRange(start: clipStartCM, duration: CMTimeMinimum(remaining, requestedSource))
                         }
 
                         let insertAt = CMTime(seconds: startTime, preferredTimescale: 600)
@@ -481,12 +724,20 @@ public class MediaEngineModule: Module {
                             ])
                         }
 
+                        // Speed: scale inserted content to fit the desired timeline duration
+                        if abs(speed - 1.0) > 0.001 {
+                            let insertedRange = CMTimeRange(start: insertAt, duration: sourceRange.duration)
+                            let targetDuration = CMTime(seconds: duration, preferredTimescale: 600)
+                            composition.scaleTimeRange(insertedRange, toDuration: targetDuration)
+                        }
+
                         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compTrack!)
 
                         let x = clip["x"] as? Double ?? 0.0
                         let y = clip["y"] as? Double ?? 0.0
                         let scale = clip["scale"] as? Double ?? 1.0
-                        let rotation = clip["rotation"] as? Double ?? 0.0
+                        let userRotation = clip["rotation"] as? Double ?? 0.0
+                        let opacity = Float(clip["opacity"] as? Double ?? 1.0)
                         let resizeMode = clip["resizeMode"] as? String ?? "cover"
 
                         let naturalSize = try? await assetTrack.load(.naturalSize)
@@ -514,17 +765,26 @@ public class MediaEngineModule: Module {
                             scaleX = targetW / videoW; scaleY = targetH / videoH
                         }
 
-                        let aspectTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
-                        let scaledW = videoW * scaleX
-                        let scaledH = videoH * scaleY
-                        let dx = (targetW - scaledW) / 2
-                        let dy = (targetH - scaledH) / 2
-                        let finalTransform = aspectTransform.concatenating(CGAffineTransform(translationX: dx, y: dy))
+                        // Build transform: scale → rotate → translate to center → user offset
+                        var t = CGAffineTransform(scaleX: scaleX * CGFloat(scale), y: scaleY * CGFloat(scale))
+                        if abs(userRotation) > 0.001 {
+                            t = t.rotated(by: CGFloat(userRotation * .pi / 180))
+                        }
+                        let scaledW = videoW * scaleX * CGFloat(scale)
+                        let scaledH = videoH * scaleY * CGFloat(scale)
+                        let dx = (targetW - scaledW) / 2 + CGFloat(x) * targetW
+                        let dy = (targetH - scaledH) / 2 + CGFloat(y) * targetH
+                        t = t.translatedBy(x: dx / (scaleX * CGFloat(scale)), y: dy / (scaleY * CGFloat(scale)))
 
-                        layerInstruction.setTransform(finalTransform, at: insertAt)
+                        layerInstruction.setTransform(t, at: insertAt)
+
+                        // Opacity
+                        if opacity < 1.0 {
+                            layerInstruction.setOpacity(opacity, at: insertAt)
+                        }
 
                         let instruction = AVMutableVideoCompositionInstruction()
-                        instruction.timeRange = CMTimeRange(start: insertAt, duration: sourceRange.duration)
+                        instruction.timeRange = CMTimeRange(start: insertAt, duration: CMTime(seconds: duration, preferredTimescale: 600))
                         instruction.layerInstructions = [layerInstruction]
                         instructions.append(instruction)
                     }
@@ -567,15 +827,44 @@ public class MediaEngineModule: Module {
                             ])
                         }
 
-                        // Per-track volume with optional fade envelope
+                        // Per-track volume with keyframes, fade envelope, or flat volume
                         if let compTrack = compTrack {
                             let volume = Float(clip["volume"] as? Double ?? 1.0)
                             let fadeInDuration = clip["fadeInDuration"] as? Double ?? 0.0
                             let fadeOutDuration = clip["fadeOutDuration"] as? Double ?? 0.0
-
                             let params = AVMutableAudioMixInputParameters(track: compTrack)
 
-                            if fadeInDuration > 0 {
+                            // Keyframe-based volume automation
+                            let envelope = clip["volumeEnvelope"] as? [String: Any]
+                            let keyframes = envelope?["keyframes"] as? [[String: Any]] ?? []
+
+                            if !keyframes.isEmpty {
+                                // Sort and apply a volume ramp between each consecutive pair
+                                let sorted = keyframes
+                                    .compactMap { kf -> (Double, Float)? in
+                                        guard let t = kf["time"] as? Double,
+                                              let v = kf["volume"] as? Double else { return nil }
+                                        return (t, Float(v) * volume)
+                                    }
+                                    .sorted { $0.0 < $1.0 }
+                                for i in 0..<sorted.count {
+                                    let (kfTime, kfVol) = sorted[i]
+                                    let absTime = CMTimeAdd(insertAt, CMTime(seconds: kfTime, preferredTimescale: 600))
+                                    if i + 1 < sorted.count {
+                                        let (nextTime, nextVol) = sorted[i + 1]
+                                        params.setVolumeRamp(
+                                            fromStartVolume: kfVol,
+                                            toEndVolume: nextVol,
+                                            timeRange: CMTimeRange(
+                                                start: absTime,
+                                                duration: CMTime(seconds: nextTime - kfTime, preferredTimescale: 600)
+                                            )
+                                        )
+                                    } else {
+                                        params.setVolume(kfVol, at: absTime)
+                                    }
+                                }
+                            } else if fadeInDuration > 0 {
                                 params.setVolumeRamp(
                                     fromStartVolume: 0,
                                     toEndVolume: volume,
@@ -588,7 +877,7 @@ public class MediaEngineModule: Module {
                                 params.setVolume(volume, at: insertAt)
                             }
 
-                            if fadeOutDuration > 0 {
+                            if fadeOutDuration > 0 && keyframes.isEmpty {
                                 let fadeOutStart = CMTimeSubtract(
                                     CMTimeAdd(insertAt, sourceRange.duration),
                                     CMTime(seconds: fadeOutDuration, preferredTimescale: 600)
@@ -617,6 +906,8 @@ public class MediaEngineModule: Module {
                         let colorHex = clip["color"] as? String ?? "#FFFFFF"
                         let startTime = clip["startTime"] as? Double ?? 0.0
                         let clipDuration = clip["duration"] as? Double ?? 5.0
+
+                        let clipOpacity = clip["opacity"] as? Float ?? 1.0
 
                         // Rich text style
                         let shadowColorHex = clip["shadowColor"] as? String
@@ -650,19 +941,33 @@ public class MediaEngineModule: Module {
                             textLayer.shadowOffset = CGSize(width: shadowOffsetX, height: shadowOffsetY)
                         }
 
+                        // Stroke via NSAttributedString
+                        let strokeWidth = clip["strokeWidth"] as? Double ?? 0.0
+                        if strokeWidth > 0, let strokeHex = clip["strokeColor"] as? String {
+                            let strokeColor = UIColor(hex: strokeHex) ?? .black
+                            let strokeAttr: [NSAttributedString.Key: Any] = [
+                                .strokeColor: strokeColor,
+                                .strokeWidth: -strokeWidth,  // negative = fill + stroke
+                                .foregroundColor: UIColor(hex: colorHex) ?? .white,
+                                .font: UIFont.systemFont(ofSize: CGFloat(fontSize))
+                            ]
+                            textLayer.string = NSAttributedString(string: text, attributes: strokeAttr)
+                        }
+
                         // Background layer
+                        let bgPadding = clip["backgroundPadding"] as? Double ?? 8.0
                         if let bgHex = clip["backgroundColor"] as? String {
                             let bgLayer = CALayer()
                             bgLayer.backgroundColor = UIColor(hex: bgHex)?.cgColor
                             bgLayer.cornerRadius = 4
-                            bgLayer.frame = textLayer.frame.insetBy(dx: -8, dy: -4)
+                            bgLayer.frame = textLayer.frame.insetBy(dx: -bgPadding, dy: -bgPadding / 2)
                             bgLayer.opacity = 0
-                            addTimingAnimation(to: bgLayer, startTime: startTime, duration: clipDuration)
+                            addTimingAnimation(to: bgLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
                             parentLayer.addSublayer(bgLayer)
                         }
 
                         textLayer.opacity = 0
-                        addTimingAnimation(to: textLayer, startTime: startTime, duration: clipDuration)
+                        addTimingAnimation(to: textLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
                         parentLayer.addSublayer(textLayer)
                     }
 
@@ -671,15 +976,15 @@ public class MediaEngineModule: Module {
                     for clip in clips {
                         guard let uri = clip["uri"] as? String else { continue }
                         let imagePath = uri.replacingOccurrences(of: "file://", with: "")
-                        guard let image = UIImage(contentsOfFile: imagePath) else {
-                            continue
-                        }
+                        guard let image = UIImage(contentsOfFile: imagePath) else { continue }
 
                         let startTime = clip["startTime"] as? Double ?? 0.0
                         let clipDuration = clip["duration"] as? Double ?? 5.0
                         let x = clip["x"] as? Double ?? 0.5
                         let y = clip["y"] as? Double ?? 0.5
                         let scale = clip["scale"] as? Double ?? 1.0
+                        let rotation = clip["rotation"] as? Double ?? 0.0
+                        let clipOpacity = clip["opacity"] as? Float ?? 1.0
 
                         let imgW = CGFloat(width) * CGFloat(scale)
                         let imgH = image.size.height / image.size.width * imgW
@@ -693,14 +998,61 @@ public class MediaEngineModule: Module {
                             width: imgW,
                             height: imgH
                         )
+                        if abs(rotation) > 0.001 {
+                            imgLayer.transform = CATransform3DMakeRotation(
+                                CGFloat(rotation * .pi / 180), 0, 0, 1
+                            )
+                        }
                         imgLayer.opacity = 0
-                        addTimingAnimation(to: imgLayer, startTime: startTime, duration: clipDuration)
+                        addTimingAnimation(to: imgLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
                         parentLayer.addSublayer(imgLayer)
                     }
                 }
             }
 
             videoComposition.instructions = instructions
+
+            // Detect whether any video clip uses a filter or custom opacity — if so, plug in
+            // the CIFilter custom compositor instead of the built-in compositor.
+            let needsCompositor = !usePassthrough && tracks.contains { track in
+                let type = track["type"] as? String ?? ""
+                guard type == "video" else { return false }
+                let clips = track["clips"] as? [[String: Any]] ?? []
+                return clips.contains { clip in
+                    let hasFilter = (clip["filter"] as? String) != nil
+                    let hasLowOpacity = (clip["opacity"] as? Double ?? 1.0) < 0.999
+                    return hasFilter || hasLowOpacity
+                }
+            }
+            if needsCompositor {
+                videoComposition.customVideoCompositorClass = MediaEngineCompositor.self
+                // Replace standard instructions with MediaEngineInstructions
+                var customInstructions: [AVVideoCompositionInstructionProtocol] = []
+                for trackData in tracks where (trackData["type"] as? String) == "video" {
+                    let tClips = trackData["clips"] as? [[String: Any]] ?? []
+                    for clip in tClips {
+                        guard let startTime = clip["startTime"] as? Double,
+                              let dur = clip["duration"] as? Double else { continue }
+                        let filterType = clip["filter"] as? String ?? "none"
+                        let filterIntensity = Float(clip["filterIntensity"] as? Double ?? 1.0)
+                        let opacity = Float(clip["opacity"] as? Double ?? 1.0)
+                        let trackID = composition.tracks(withMediaType: .video).first?.trackID ?? 1
+                        let instr = MediaEngineInstruction(
+                            timeRange: CMTimeRange(
+                                start: CMTime(seconds: startTime, preferredTimescale: 600),
+                                duration: CMTime(seconds: dur, preferredTimescale: 600)
+                            ),
+                            trackID: trackID,
+                            filterType: filterType,
+                            filterIntensity: filterIntensity,
+                            opacity: opacity
+                        )
+                        customInstructions.append(instr)
+                    }
+                }
+                videoComposition.instructions = customInstructions
+            }
+
             if hasOverlays {
                 videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
                     postProcessingAsVideoLayer: videoLayer,
@@ -750,19 +1102,40 @@ public class MediaEngineModule: Module {
                     NSLocalizedDescriptionKey: "Video export to \(outputUri) failed: \(exportSession.error?.localizedDescription ?? "Unknown error")"
                 ])
             }
+        }
+
+        // MARK: - Preview View
+        View(MediaEnginePreviewView.self) {
+            Events("onLoad", "onTimeUpdate", "onPlaybackEnded", "onError")
+
+            Prop("config") { (view: MediaEnginePreviewView, config: [String: Any]) in
+                view.updateConfig(config)
+            }
+            Prop("isPlaying") { (view: MediaEnginePreviewView, playing: Bool) in
+                view.setPlaying(playing)
+            }
+            Prop("muted") { (view: MediaEnginePreviewView, muted: Bool) in
+                view.setMuted(muted)
+            }
+            // Controlled seek — JS sets this to scrub the timeline when paused
+            Prop("currentTime") { (view: MediaEnginePreviewView, seconds: Double) in
+                view.setCurrentTime(seconds)
+            }
+        }
     }
 
-    /// Helper to add a fade-in/fade-out animation that makes a layer visible only during [startTime, startTime+duration]
-    private func addTimingAnimation(to layer: CALayer, startTime: Double, duration: Double) {
+    /// Add a Core Animation visibility window so a layer is visible only during [startTime, startTime+duration].
+    /// maxOpacity controls peak opacity (for clips with opacity < 1).
+    private func addTimingAnimation(to layer: CALayer, startTime: Double, duration: Double, maxOpacity: Float = 1.0) {
         let show = CABasicAnimation(keyPath: "opacity")
-        show.fromValue = 0; show.toValue = 1
+        show.fromValue = 0; show.toValue = maxOpacity
         show.beginTime = AVCoreAnimationBeginTimeAtZero + startTime
         show.duration = 0.05
         show.fillMode = .forwards
         show.isRemovedOnCompletion = false
 
         let hide = CABasicAnimation(keyPath: "opacity")
-        hide.fromValue = 1; hide.toValue = 0
+        hide.fromValue = maxOpacity; hide.toValue = 0
         hide.beginTime = AVCoreAnimationBeginTimeAtZero + startTime + duration
         hide.duration = 0.05
         hide.fillMode = .forwards

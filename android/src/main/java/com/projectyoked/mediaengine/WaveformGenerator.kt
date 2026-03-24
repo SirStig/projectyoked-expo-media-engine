@@ -22,6 +22,7 @@ object WaveformGenerator {
             extractor.setDataSource(path)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set data source: $uriString", e)
+            extractor.release()
             return emptyList()
         }
 

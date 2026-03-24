@@ -38,6 +38,7 @@ class TextureRenderer {
     private var maTextureHandle = 0
     private var mFilterTypeHandle = 0
     private var mFilterIntensityHandle = 0
+    private var mOpacityHandle = 0
 
     // simple vertex shader
     private val mVertexShader = """
@@ -52,36 +53,72 @@ class TextureRenderer {
         }
     """
 
-    // fragment shader with external texture support and color filters
+    // fragment shader with external texture support, color filters, and opacity
+    // Filter types: 0=None 1=Grayscale 2=Sepia 3=Vignette 4=Invert
+    //               5=Brightness 6=Contrast 7=Saturation 8=Warm 9=Cool
     private val mFragmentShader = """
         #extension GL_OES_EGL_image_external : require
         precision highp float;
         varying vec2 vTextureCoord;
         uniform samplerExternalOES sTexture;
-        uniform int uFilterType; // 0=None, 1=Grayscale, 2=Sepia, 3=Vignette, 4=Invert
+        uniform int uFilterType;
         uniform float uFilterIntensity; // 0..1
+        uniform float uOpacity;         // 0..1
 
         void main() {
             vec4 color = texture2D(sTexture, vTextureCoord);
+            vec3 filtered = color.rgb;
 
             if (uFilterType == 1) { // Grayscale
                 float gray = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-                gl_FragColor = vec4(mix(color.rgb, vec3(gray), uFilterIntensity), color.a);
+                filtered = mix(color.rgb, vec3(gray), uFilterIntensity);
+
             } else if (uFilterType == 2) { // Sepia
                 float r = dot(color.rgb, vec3(0.393, 0.769, 0.189));
                 float g = dot(color.rgb, vec3(0.349, 0.686, 0.168));
                 float b = dot(color.rgb, vec3(0.272, 0.534, 0.131));
-                vec3 sepia = vec3(min(r, 1.0), min(g, 1.0), min(b, 1.0));
-                gl_FragColor = vec4(mix(color.rgb, sepia, uFilterIntensity), color.a);
+                filtered = mix(color.rgb, clamp(vec3(r, g, b), 0.0, 1.0), uFilterIntensity);
+
             } else if (uFilterType == 3) { // Vignette
                 float d = distance(vTextureCoord, vec2(0.5));
                 float v = 1.0 - smoothstep(0.3, 0.75, d) * uFilterIntensity;
-                gl_FragColor = vec4(color.rgb * v, color.a);
+                filtered = color.rgb * v;
+
             } else if (uFilterType == 4) { // Invert
-                gl_FragColor = vec4(mix(color.rgb, vec3(1.0) - color.rgb, uFilterIntensity), color.a);
-            } else {
-                gl_FragColor = color;
+                filtered = mix(color.rgb, vec3(1.0) - color.rgb, uFilterIntensity);
+
+            } else if (uFilterType == 5) { // Brightness
+                // intensity 0..1: 0.5=no change, 0=darkest, 1=brightest
+                float b = (uFilterIntensity - 0.5) * 2.0;
+                filtered = clamp(color.rgb + b, 0.0, 1.0);
+
+            } else if (uFilterType == 6) { // Contrast
+                // intensity 0..1: 0.5=no change, 0=flat grey, 1=max contrast
+                float c = uFilterIntensity * 2.0;
+                filtered = clamp((color.rgb - 0.5) * c + 0.5, 0.0, 1.0);
+
+            } else if (uFilterType == 7) { // Saturation
+                // intensity 0..1: 0=grayscale, 0.5=normal, 1=double saturation
+                float gray = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+                float sat = uFilterIntensity * 2.0;
+                filtered = mix(vec3(gray), color.rgb, sat);
+
+            } else if (uFilterType == 8) { // Warm
+                filtered = vec3(
+                    clamp(color.r + uFilterIntensity * 0.25, 0.0, 1.0),
+                    clamp(color.g + uFilterIntensity * 0.05, 0.0, 1.0),
+                    clamp(color.b - uFilterIntensity * 0.25, 0.0, 1.0)
+                );
+
+            } else if (uFilterType == 9) { // Cool
+                filtered = vec3(
+                    clamp(color.r - uFilterIntensity * 0.25, 0.0, 1.0),
+                    clamp(color.g + uFilterIntensity * 0.05, 0.0, 1.0),
+                    clamp(color.b + uFilterIntensity * 0.25, 0.0, 1.0)
+                );
             }
+
+            gl_FragColor = vec4(filtered, color.a * uOpacity);
         }
     """
 
@@ -115,15 +152,18 @@ class TextureRenderer {
     private var maPositionHandle2D = 0
     private var maTextureHandle2D = 0
     private var muMVPMatrixHandle2D = 0
-    
-    // Shader for GL_TEXTURE_2D (Standard, non-OES)
+    private var mOpacityHandle2D = 0
+
+    // Shader for GL_TEXTURE_2D (standard texture — images and text overlays)
     private val mFragmentShader2D = """
         precision mediump float;
         varying vec2 vTextureCoord;
         uniform sampler2D sTexture;
-        
+        uniform float uOpacity;
+
         void main() {
-            gl_FragColor = texture2D(sTexture, vTextureCoord);
+            vec4 color = texture2D(sTexture, vTextureCoord);
+            gl_FragColor = vec4(color.rgb, color.a * uOpacity);
         }
     """
 
@@ -140,19 +180,19 @@ class TextureRenderer {
         muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uSTMatrix")
         mFilterTypeHandle = GLES20.glGetUniformLocation(mProgram, "uFilterType")
         mFilterIntensityHandle = GLES20.glGetUniformLocation(mProgram, "uFilterIntensity")
+        mOpacityHandle = GLES20.glGetUniformLocation(mProgram, "uOpacity")
 
-        // 2. Init 2D Program (Overlay)
+        // 2. Init 2D Program (Overlay / Image)
         mProgram2D = createProgram(mVertexShader, mFragmentShader2D)
         if (mProgram2D == 0) throw RuntimeException("failed creating program 2D")
-        
+
         maPositionHandle2D = GLES20.glGetAttribLocation(mProgram2D, "aPosition")
         maTextureHandle2D = GLES20.glGetAttribLocation(mProgram2D, "aTextureCoord")
         muMVPMatrixHandle2D = GLES20.glGetUniformLocation(mProgram2D, "uMVPMatrix")
-        // No STMatrix needed for 2D, but vertex shader expects it. We can bind identity.
-        // Actually, let's just reuse the vertex shader and bind identity to uSTMatrix.
+        mOpacityHandle2D = GLES20.glGetUniformLocation(mProgram2D, "uOpacity")
     }
 
-    fun draw(textureId: Int, stMatrix: FloatArray?, mvpMatrix: FloatArray?, filterType: Int, filterIntensity: Float = 1.0f) {
+    fun draw(textureId: Int, stMatrix: FloatArray?, mvpMatrix: FloatArray?, filterType: Int, filterIntensity: Float = 1.0f, opacity: Float = 1.0f) {
         checkGlError("onDrawFrame start")
         GLES20.glUseProgram(mProgram)
         checkGlError("glUseProgram")
@@ -184,12 +224,20 @@ class TextureRenderer {
         
         GLES20.glUniform1i(mFilterTypeHandle, filterType)
         GLES20.glUniform1f(mFilterIntensityHandle, filterIntensity)
+        GLES20.glUniform1f(mOpacityHandle, opacity)
+
+        if (opacity < 1.0f) {
+            GLES20.glEnable(GLES20.GL_BLEND)
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        }
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         checkGlError("glDrawArrays")
+
+        if (opacity < 1.0f) GLES20.glDisable(GLES20.GL_BLEND)
     }
 
-    fun drawOverlay(textureId: Int, x: Float, y: Float, scaleX: Float, scaleY: Float) {
+    fun drawOverlay(textureId: Int, x: Float, y: Float, scaleX: Float, scaleY: Float, opacity: Float = 1.0f) {
         GLES20.glUseProgram(mProgram2D)
         checkGlError("glUseProgram2D")
 
@@ -214,24 +262,23 @@ class TextureRenderer {
         Matrix.setIdentityM(mMVPMatrix, 0)
         Matrix.translateM(mMVPMatrix, 0, x, y, 0f)
         Matrix.scaleM(mMVPMatrix, 0, scaleX, scaleY, 1f)
-        
+
         GLES20.glUniformMatrix4fv(muMVPMatrixHandle2D, 1, false, mMVPMatrix, 0)
-        
-        // For uSTMatrix in Vertex Shader (reused), pass identity
+        GLES20.glUniform1f(mOpacityHandle2D, opacity)
+
         val flipMatrix = FloatArray(16)
         Matrix.setIdentityM(flipMatrix, 0)
         Matrix.translateM(flipMatrix, 0, 0f, 1f, 0f)
         Matrix.scaleM(flipMatrix, 0, 1f, -1f, 1f)
-        
+
         val uSTHandle = GLES20.glGetUniformLocation(mProgram2D, "uSTMatrix")
         GLES20.glUniformMatrix4fv(uSTHandle, 1, false, flipMatrix, 0)
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        
         GLES20.glDisable(GLES20.GL_BLEND)
     }
-    
-    fun draw2D(textureId: Int, mvpMatrix: FloatArray?, filterType: Int) {
+
+    fun draw2D(textureId: Int, mvpMatrix: FloatArray?, filterType: Int, opacity: Float = 1.0f) {
         GLES20.glUseProgram(mProgram2D)
         checkGlError("glUseProgram2D")
 
@@ -269,9 +316,9 @@ class TextureRenderer {
         
         val uSTHandle = GLES20.glGetUniformLocation(mProgram2D, "uSTMatrix")
         GLES20.glUniformMatrix4fv(uSTHandle, 1, false, flipMatrix, 0)
+        GLES20.glUniform1f(mOpacityHandle2D, opacity)
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        
         GLES20.glDisable(GLES20.GL_BLEND)
     }
 

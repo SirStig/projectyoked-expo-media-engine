@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Expo Media Engine — native video composition for Expo | Project Yoked LLC</title>
+  <meta name="description" content="Open-source Expo native module for hardware-accelerated video composition, real-time preview, filters, transitions, audio mixing, and more on iOS and Android. Maintained by Project Yoked LLC.">
+  <meta name="keywords" content="Expo, React Native, video composition, AVFoundation, MediaCodec, Project Yoked, Joshua Kac, expo-media-engine">
+  <meta name="author" content="Joshua Kac, Project Yoked LLC">
+  <link rel="canonical" href="https://sirstig.github.io/projectyoked-expo-media-engine/">
+  <meta property="og:title" content="Expo Media Engine">
+  <meta property="og:description" content="Native video processing for Expo apps — stable 0.1.x and pre-release 1.0 documentation.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://sirstig.github.io/projectyoked-expo-media-engine/">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "name": "@projectyoked/expo-media-engine",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "iOS, Android",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": {
+          "@type": "Organization",
+          "name": "Project Yoked LLC",
+          "url": "https://www.projectyoked.com"
+        },
+        "maintainer": {
+          "@type": "Person",
+          "name": "Joshua Kac",
+          "jobTitle": "CTO",
+          "worksFor": { "@type": "Organization", "name": "Project Yoked LLC" }
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <header class="site">
+    <div class="inner">
+      <a class="home" href="./">Expo Media Engine</a>
+      <nav class="site-nav">
+        <label for="doc-version" class="muted">Docs</label>
+        <select id="doc-version" class="version-select" aria-label="Documentation version">
+          <option value="./stable/">Stable (0.1.x)</option>
+          <option value="./alpha/">Pre-release (1.0.0-alpha)</option>
+        </select>
+        <a class="nav-aux" href="changelog.html">Changelog</a>
+      </nav>
+    </div>
+  </header>
+
+  <aside class="used-strip" aria-label="Production use">
+    <a class="used-strip__inner" href="https://www.projectyoked.com">
+      <img class="used-strip__logo" src="https://projectyoked.com/assets/project-yoked-logo.png" alt="Project Yoked" width="112" height="28">
+      <div class="used-strip__copy">
+        <span class="used-strip__label">Used in production</span>
+        <span class="used-strip__sub">Project Yoked — workout training app (iOS and Android)</span>
+      </div>
+    </a>
+  </aside>
+
+  <main class="wrap">
+    <h1>Expo Media Engine</h1>
+    <p class="muted">Open-source Expo native module for hardware-accelerated video composition and editing on iOS and Android.</p>
+
+    <p>
+      Built on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android), the engine gives you
+      real-time preview, multi-track composition, 9 filters, 8 transitions, audio mixing, text and image overlays,
+      video stitching, and compression — without proprietary SDKs or per-minute billing.
+    </p>
+    <p>
+      The package is published on npm as <code>@projectyoked/expo-media-engine</code>.
+      The current pre-release line (<strong>1.0.0-alpha</strong>, npm tag <code>alpha</code>) contains the full feature set.
+      A legacy stable line (<strong>0.1.x</strong>, npm tag <code>latest</code>) covers basic single-video export and audio utilities.
+    </p>
+
+    <h2>Choose documentation</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Release line</th>
+          <th>npm install</th>
+          <th>Docs</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Stable</td>
+          <td><code>npm i @projectyoked/expo-media-engine</code></td>
+          <td><a href="stable/">Stable documentation</a></td>
+        </tr>
+        <tr>
+          <td>Pre-release</td>
+          <td><code>npm i @projectyoked/expo-media-engine@alpha</code></td>
+          <td><a href="alpha/">Pre-release documentation</a></td>
+        </tr>
+        <tr>
+          <td>History</td>
+          <td colspan="2"><a href="changelog.html">Changelog</a> (same content as <code>CHANGELOG.md</code> in the repository)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Background</h2>
+    <p>
+      This library was built at <a href="https://www.projectyoked.com">Project Yoked LLC</a> for the Project Yoked app (see the strip above).
+      It exists because we needed native composition, preview, and related media behavior in Expo without vendor lock-in or prohibitive third-party video SDKs, so we implemented it in-house and released it under the MIT license.
+    </p>
+
+    <h2>Repository and issues</h2>
+    <ul class="api-list">
+      <li><a href="https://github.com/SirStig/projectyoked-expo-media-engine">GitHub repository</a></li>
+      <li><a href="https://www.npmjs.com/package/@projectyoked/expo-media-engine">npm package page</a></li>
+    </ul>
+
+    <footer class="site">
+      <p>MIT License. Project Yoked LLC. Documentation generated as static HTML for GitHub Pages.</p>
+    </footer>
+  </main>
+
+  <script>
+    document.getElementById('doc-version').addEventListener('change', function () {
+      if (this.value) window.location.href = this.value;
+    });
+  </script>
+</body>
+</html>

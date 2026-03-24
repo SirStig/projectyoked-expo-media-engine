@@ -9,7 +9,7 @@ module.exports = {
     coverageReporters: ['text', 'lcov', 'html'],
     moduleFileExtensions: ['js', 'json', 'jsx', 'ts', 'tsx', 'node'],
     transform: {
-        '^.+\\.js$': 'babel-jest',
+        '^.+\\.(js|jsx)$': 'babel-jest',
     },
     testPathIgnorePatterns: ['/node_modules/', '/tests/typescript.test.ts'],
 };

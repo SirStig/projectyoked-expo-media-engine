@@ -1,0 +1,304 @@
+:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --text: #1c1917;
+  --muted: #57534e;
+  --border: #e7e5e4;
+  --accent: #0f766e;
+  --accent-hover: #115e59;
+  --warn-bg: #fffbeb;
+  --warn-border: #fcd34d;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 17px;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+}
+
+h1, h2, h3 {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+code, pre {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.9em;
+}
+
+pre {
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.wrap {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 1.25rem 3rem;
+}
+
+header.site {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+header.site .inner {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+
+header.site nav.site-nav {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1.25rem;
+}
+
+a.nav-aux {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+a.nav-aux:hover {
+  color: var(--accent);
+}
+
+a.nav-aux[aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.used-strip {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.used-strip__inner {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0.6rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.used-strip__inner:hover .used-strip__sub {
+  color: var(--text);
+}
+
+.used-strip__logo {
+  display: block;
+  height: 28px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.used-strip__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.used-strip__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.used-strip__sub {
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.changelog-prose {
+  font-size: 0.95rem;
+}
+
+.changelog-prose h1 {
+  font-size: 1.5rem;
+  margin: 0 0 1rem;
+}
+
+.changelog-prose h2 {
+  font-size: 1.2rem;
+  margin: 2rem 0 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.changelog-prose h3 {
+  font-size: 1rem;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.changelog-prose p,
+.changelog-prose ul {
+  margin: 0.5rem 0;
+}
+
+.changelog-prose ul {
+  padding-left: 1.25rem;
+}
+
+.changelog-prose li {
+  margin: 0.25rem 0;
+}
+
+.changelog-prose code {
+  background: var(--surface);
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 0.88em;
+}
+
+.changelog-prose pre code {
+  border: none;
+  padding: 0;
+  background: none;
+}
+
+.changelog-prose a {
+  word-break: break-word;
+}
+
+#changelog-status {
+  margin-bottom: 1rem;
+}
+
+header.site a.home {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+header.site a.home:hover {
+  color: var(--accent);
+}
+
+.version-select {
+  font: inherit;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.banner {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  color: #78350f;
+  font-size: 0.95rem;
+  margin-bottom: 1.5rem;
+}
+
+.banner strong {
+  color: #451a03;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  margin: 1rem 0;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+}
+
+th {
+  background: var(--surface);
+  font-weight: 600;
+}
+
+footer.site {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+ul.api-list {
+  margin: 0.5rem 0 1rem 1.25rem;
+  padding: 0;
+}
+
+ul.api-list li {
+  margin: 0.35rem 0;
+}
+
+/* Inline code in body text */
+p code, li code, td code {
+  background: var(--surface);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 0.875em;
+}
+
+/* Zebra striping for long reference tables */
+tbody tr:nth-child(even) {
+  background: var(--bg);
+}
+
+/* Tighter line spacing for dense reference tables */
+.prop-table td,
+.prop-table th {
+  vertical-align: top;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}

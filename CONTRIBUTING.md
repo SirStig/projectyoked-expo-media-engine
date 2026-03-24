@@ -15,6 +15,10 @@ Thank you for your interest in contributing to this project! We welcome contribu
    npm install
    ```
 
+## Documentation
+
+User-facing API documentation for stable vs pre-release lines lives in `site/` and is deployed to GitHub Pages (see [DOCUMENTATION.md](DOCUMENTATION.md)). Update those HTML pages when you change public APIs or install instructions for either release line.
+
 ## Development Workflow
 
 ### Setting Up for Development

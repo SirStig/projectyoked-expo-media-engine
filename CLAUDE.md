@@ -25,6 +25,8 @@ There is no build step — this is a native module distributed as source.
 
 This is `@projectyoked/expo-media-engine`, an Expo native module for hardware-accelerated video composition and editing on iOS and Android.
 
+Versioned end-user documentation is static HTML in `site/` (deployed via `.github/workflows/pages.yml` to GitHub Pages). See [DOCUMENTATION.md](DOCUMENTATION.md).
+
 ### Layer Structure
 
 **JavaScript bridge** (`src/`) — thin wrapper over the native module:

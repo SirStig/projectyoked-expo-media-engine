@@ -50,3 +50,5 @@ coverage/
 .cache/
 
 example/assets/test
+
+site/changelog.md

@@ -26,7 +26,8 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
     private val surfaceTextures = mutableMapOf<String, SurfaceTexture>()
     private val lastRenderedTime = mutableMapOf<String, Long>()
     private val videoTextureIds = mutableMapOf<String, Int>()
-    private val bitmapTextures = mutableMapOf<String, Int>()
+    private data class ImageTexture(val texId: Int, val width: Int, val height: Int)
+    private val bitmapTextures = mutableMapOf<String, ImageTexture>()
 
     // Cached video dimensions per URI to avoid re-querying track format every frame
     private data class VideoSize(val width: Int, val height: Int, val rotation: Int)
@@ -68,9 +69,12 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
                     }
                 }
 
-        if (extractors.isEmpty()) {
+        // Only require extractors if there are actual video tracks to render.
+        // IMAGE-only or AUDIO-only compositions are valid — images are lazy-loaded in renderClip.
+        val hasVideoTracks = config.tracks.any { it.type == CompositeVideoComposer.TrackType.VIDEO }
+        if (hasVideoTracks && extractors.isEmpty()) {
             throw RuntimeException(
-                    "No extractors initialized! Input URIs: ${config.tracks.flatMap { it.clips }.map { it.uri }}"
+                    "No video extractors initialized! Input URIs: ${config.tracks.flatMap { it.clips }.map { it.uri }}"
             )
         }
     }
@@ -91,11 +95,76 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         val visualTracks = config.tracks.filter { it.type in visualTrackTypes }
 
         visualTracks.forEach { track ->
-            val activeClip = track.clips.find {
+            // Collect all clips active at this timestamp (could be 2 during a transition overlap)
+            val activeClips = track.clips.filter {
                 currentTimeSec >= it.startTime && currentTimeSec < (it.startTime + it.duration)
             }
-            if (activeClip != null) {
-                renderClip(activeClip, currentTimeUs)
+
+            when (activeClips.size) {
+                0 -> { /* nothing to render */ }
+                1 -> renderClip(activeClips[0], currentTimeUs)
+                else -> {
+                    // Transition: outgoing clip ends first, incoming clip starts later
+                    val outgoing = activeClips.minByOrNull { it.startTime }!!
+                    val incoming = activeClips.maxByOrNull { it.startTime }!!
+
+                    // Honor transitionDuration if specified; otherwise use clip overlap window
+                    val specifiedDur = (incoming.transitionDuration.takeIf { it > 0 }
+                        ?: outgoing.transitionDuration.takeIf { it > 0 }
+                        ?: 0.0)
+                    val overlapEnd   = outgoing.startTime + outgoing.duration
+                    val overlapStart = if (specifiedDur > 0)
+                        (overlapEnd - specifiedDur).coerceAtLeast(incoming.startTime)
+                    else
+                        incoming.startTime
+                    val overlapDuration = overlapEnd - overlapStart
+                    val progress = if (overlapDuration > 0) {
+                        ((currentTimeSec - overlapStart) / overlapDuration).toFloat().coerceIn(0f, 1f)
+                    } else 1f
+
+                    val transitionType = incoming.transition ?: outgoing.transition ?: "crossfade"
+                    when (transitionType) {
+                        "crossfade" -> {
+                            renderClip(outgoing.copy(opacity = (1f - progress) * outgoing.opacity), currentTimeUs)
+                            renderClip(incoming.copy(opacity = progress * incoming.opacity), currentTimeUs)
+                        }
+                        "fade" -> {
+                            // Fade to black in first half, fade from black in second half
+                            val outOpacity = if (progress < 0.5f) (1f - progress * 2f) else 0f
+                            val inOpacity = if (progress > 0.5f) ((progress - 0.5f) * 2f) else 0f
+                            if (outOpacity > 0f) renderClip(outgoing.copy(opacity = outOpacity * outgoing.opacity), currentTimeUs)
+                            if (inOpacity > 0f) renderClip(incoming.copy(opacity = inOpacity * incoming.opacity), currentTimeUs)
+                        }
+                        "slide-left", "slide-right", "slide-up", "slide-down" -> {
+                            // Translate clips in/out. Uses the x/y position to slide.
+                            val dir = when (transitionType) {
+                                "slide-left"  -> Pair(-1f, 0f)
+                                "slide-right" -> Pair(1f, 0f)
+                                "slide-up"    -> Pair(0f, 1f)
+                                else          -> Pair(0f, -1f) // slide-down
+                            }
+                            val inX  = incoming.x + dir.first  * (1f - progress) * 2f
+                            val inY  = incoming.y + dir.second * (1f - progress) * 2f
+                            val outX = outgoing.x - dir.first  * progress * 2f
+                            val outY = outgoing.y - dir.second * progress * 2f
+                            renderClip(outgoing.copy(x = outX, y = outY), currentTimeUs)
+                            renderClip(incoming.copy(x = inX, y = inY), currentTimeUs)
+                        }
+                        "zoom-in" -> {
+                            renderClip(outgoing.copy(scale = outgoing.scale * (1f + progress * 0.3f), opacity = (1f - progress) * outgoing.opacity), currentTimeUs)
+                            renderClip(incoming.copy(scale = incoming.scale * (0.7f + progress * 0.3f), opacity = progress * incoming.opacity), currentTimeUs)
+                        }
+                        "zoom-out" -> {
+                            renderClip(outgoing.copy(scale = outgoing.scale * (1f - progress * 0.3f), opacity = (1f - progress) * outgoing.opacity), currentTimeUs)
+                            renderClip(incoming.copy(scale = incoming.scale * (1.3f - progress * 0.3f), opacity = progress * incoming.opacity), currentTimeUs)
+                        }
+                        else -> {
+                            // Unknown transition: fall back to crossfade
+                            renderClip(outgoing.copy(opacity = (1f - progress) * outgoing.opacity), currentTimeUs)
+                            renderClip(incoming.copy(opacity = progress * incoming.opacity), currentTimeUs)
+                        }
+                    }
+                }
             }
         }
 
@@ -165,9 +234,9 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         val imagesToRemove = bitmapTextures.keys.filter { !activeAndUpcoming.contains(it) }
         imagesToRemove.forEach { uri ->
             Log.d("RenderEngine", "Releasing image texture: $uri")
-            val texId = bitmapTextures[uri]
-            if (texId != null) {
-                GLES20.glDeleteTextures(1, intArrayOf(texId), 0)
+            val img = bitmapTextures[uri]
+            if (img != null) {
+                GLES20.glDeleteTextures(1, intArrayOf(img.texId), 0)
             }
             bitmapTextures.remove(uri)
         }
@@ -178,39 +247,22 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
 
         val mime = getMimeType(uri)
         if (mime.startsWith("image/")) {
-            // Lazy Load
+            // Lazy Load — dimensions are stored alongside the texture ID on first load
             if (!bitmapTextures.containsKey(uri)) {
                 Log.d("RenderEngine", "Lazy Loading image: $uri")
                 val path = File(Uri.parse(uri).path ?: uri).absolutePath
                 val bitmap = android.graphics.BitmapFactory.decodeFile(path)
                 if (bitmap != null) {
                     val tId = loadTexture(bitmap)
-                    bitmapTextures[uri] = tId
-                    bitmap.recycle() // Texture is loaded, recycle bitmap
+                    bitmapTextures[uri] = ImageTexture(tId, bitmap.width, bitmap.height)
+                    bitmap.recycle()
                 } else {
                     return // Failed to load
                 }
             }
 
-            val texId = bitmapTextures[uri]!!
-
-            // Calculate Aspect Ratio for Image
-            // We need original dimensions. We didn't store them.
-            // Improvement: Store ImageMetaData(width, height, texId)
-            // For now, let's assume square or extract from somewhere?
-            // Actually `loadTexture` doesn't return dims.
-            // Let's reload options just for dims or store it.
-            // Re-decoding bounds is cheap.
-            val options = android.graphics.BitmapFactory.Options()
-            options.inJustDecodeBounds = true
-            android.graphics.BitmapFactory.decodeFile(
-                    File(Uri.parse(uri).path ?: uri).absolutePath,
-                    options
-            )
-            val width = options.outWidth
-            val height = options.outHeight
-
-            renderVisual(clip, texId, width, height, isOES = false)
+            val img = bitmapTextures[uri]!!
+            renderVisual(clip, img.texId, img.width, img.height, isOES = false)
             return
         }
 
@@ -274,9 +326,9 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             // Seed lastRenderedTime so frame 2 doesn't trigger an unnecessary seek
             lastRenderedTime[uri] = clipStartUs
         } else {
-            // Compute source-relative time accounting for clipStart offset
+            // Compute source-relative time accounting for clipStart offset and playback speed
             val clipRelativeTimeUs = timelineTimeUs - (clip.startTime * 1_000_000).toLong()
-            val sourceTimeUs = (clip.clipStart * 1_000_000).toLong() + clipRelativeTimeUs
+            val sourceTimeUs = (clip.clipStart * 1_000_000).toLong() + (clipRelativeTimeUs * clip.speed).toLong()
 
             val lastTime = lastRenderedTime[uri] ?: -1L
             val isSequential = lastTime >= 0 && kotlin.math.abs(sourceTimeUs - lastTime) < 200_000L
@@ -364,56 +416,36 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
     }
 
     private fun renderOverlay(overlay: CompositeVideoComposer.Clip) {
-        // Generate Bitmap if needed (cache)
-        if (!overlayTextureCache.containsKey(overlay.uri)) {
-            val bitmap = generateOverlayBitmap(overlay.uri)
+        // Cache key: include text content + styling so changes bust the cache
+        val cacheKey = "${overlay.uri}|${overlay.textColor}|${overlay.textFontSize}|${overlay.textFontBold}" +
+                "|${overlay.textShadowColor}|${overlay.textShadowRadius}|${overlay.textBackgroundColor}" +
+                "|${overlay.textStrokeColor}|${overlay.textStrokeWidth}"
+
+        if (!overlayTextureCache.containsKey(cacheKey)) {
+            val bitmap = generateOverlayBitmap(overlay)
             if (bitmap != null) {
                 val texId = loadTexture(bitmap)
-                overlayTextureCache[overlay.uri] = texId
-                // Don't recycle immediately if we want to reload, but here we just cache texture.
+                overlayTextureCache[cacheKey] = texId
                 bitmap.recycle()
             }
         }
 
-        val texId = overlayTextureCache[overlay.uri]
+        val texId = overlayTextureCache[cacheKey]
         if (texId != null) {
-            // Coordinate System:
-            // Clip X,Y are normalized -1..1 (or 0..1 depending on our convention).
-            // Let's assume the input config uses 0..1 (top-left origin).
-            // GL expects normalized device coordinates -1..1 (center origin).
-
-            // Map 0..1 to -1..1
-            // x: 0 -> -1, 1 -> 1  => (x * 2) - 1
-            // y: 0 -> 1, 1 -> -1 (GL Y is up, Screen Y is down) => 1 - (y * 2)
-
+            // Map 0..1 → -1..1 (center-origin NDC)
             val glX = (overlay.x * 2) - 1
             val glY = 1 - (overlay.y * 2)
-
-            // Scale?
-            // Overlay Bitmap is 1024x1024 (Square)
-            // We render to a quad -1..1 (Square NDC).
-            // Aspect Ratio Correction:
-            // If we draw a square in NDC on a rectangular screen, it stretches.
-            // Screen Aspect = Width / Height (e.g. 720/1280 = ~0.56)
-            // We want square pixels.
-            // If we keep X scale (Width) as reference, we must scale Y by Aspect Ratio.
             val viewAspect = config.width.toFloat() / config.height.toFloat()
-
-            // Pass separate X/Y scales to maintain squareness of the texture content relative to
-            // screen
-            // Base scale applies to both.
-            // Correction: Scale Y * viewAspect.
             textureRenderer!!.drawOverlay(
                     texId,
                     glX,
                     glY,
                     overlay.scale,
-                    overlay.scale * viewAspect
+                    overlay.scale * viewAspect,
+                    overlay.opacity
             )
         }
     }
-
-    // ...
 
     // Helpers
     private fun selectVideoTrack(extractor: MediaExtractor): Int {
@@ -425,48 +457,91 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         return -1
     }
 
-    private fun generateOverlayBitmap(content: String): android.graphics.Bitmap? {
-        // Format: text:<Text>|#COLOR|SIZE
-        val parts =
-                if (content.startsWith("text:")) content.substring(5).split("|")
-                else listOf(content)
-        val textParam = parts.getOrElse(0) { "" }
-        val colorParam = parts.getOrElse(1) { "#FFFFFF" }
-        val sizeParam = parts.getOrElse(2) { "64" }.toFloatOrNull() ?: 64f
+    private fun parseColor(hex: String, default: Int = android.graphics.Color.WHITE): Int {
+        return try { android.graphics.Color.parseColor(hex) } catch (e: Exception) { default }
+    }
 
-        // High resolution for text crispness (2048x2048)
-        val bitmap =
-                android.graphics.Bitmap.createBitmap(
-                        2048,
-                        2048,
-                        android.graphics.Bitmap.Config.ARGB_8888
-                )
-        val canvas = android.graphics.Canvas(bitmap)
-        val paint = android.graphics.Paint()
-
-        try {
-            paint.color = android.graphics.Color.parseColor(colorParam)
-        } catch (e: Exception) {
-            paint.color = android.graphics.Color.WHITE
+    private fun generateOverlayBitmap(clip: CompositeVideoComposer.Clip): android.graphics.Bitmap? {
+        // Extract text from either clip.text or the encoded URI "text:<content>|COLOR|SIZE"
+        val (textParam, colorParam, sizeParam) = if (clip.text != null) {
+            Triple(clip.text, clip.textColor, clip.textFontSize)
+        } else if (clip.uri.startsWith("text:")) {
+            val parts = clip.uri.substring(5).split("|")
+            Triple(
+                parts.getOrElse(0) { "" },
+                parts.getOrElse(1) { "#FFFFFF" },
+                parts.getOrElse(2) { "64" }.toFloatOrNull() ?: 64f
+            )
+        } else {
+            Triple(clip.uri, "#FFFFFF", clip.textFontSize)
         }
 
-        // Scale font size: Base config is relative to 720p usually.
-        // We are drawing to 2048x2048.
-        // If config size is ~64 (points), we want it large.
-        paint.textSize = sizeParam * 4f
-        paint.isAntiAlias = true
-        paint.isFilterBitmap = true
-        paint.isDither = true
-        paint.textAlign = android.graphics.Paint.Align.CENTER
+        if (textParam.isBlank()) return null
 
-        // Draw centered
-        val x = canvas.width / 2f
-        val y = (canvas.height / 2f) - ((paint.descent() + paint.ascent()) / 2f)
+        // High-resolution canvas for crisp text at any display size
+        val bitmapSize = 2048
+        val bitmap = android.graphics.Bitmap.createBitmap(bitmapSize, bitmapSize, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
 
-        // Handle Emoji (basic system font support)
-        // If it's an emoji, it should just draw.
+        val scaledSize = sizeParam * 4f // scale to canvas resolution
+        val cx = bitmapSize / 2f
 
-        canvas.drawText(textParam, x, y, paint)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = parseColor(colorParam)
+            textSize = scaledSize
+            textAlign = android.graphics.Paint.Align.CENTER
+            isFilterBitmap = true
+            typeface = if (clip.textFontBold) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+        }
+
+        // Shadow
+        val shadowColor = clip.textShadowColor
+        if (shadowColor != null && clip.textShadowRadius > 0) {
+            paint.setShadowLayer(
+                clip.textShadowRadius * 4f,
+                clip.textShadowOffsetX * 4f,
+                clip.textShadowOffsetY * 4f,
+                parseColor(shadowColor, android.graphics.Color.TRANSPARENT)
+            )
+        }
+
+        val textY = (bitmapSize / 2f) - ((paint.descent() + paint.ascent()) / 2f)
+        val textBounds = android.graphics.Rect()
+        paint.getTextBounds(textParam, 0, textParam.length, textBounds)
+
+        // Background
+        val bgColor = clip.textBackgroundColor
+        if (bgColor != null) {
+            val pad = clip.textBackgroundPadding * 4f
+            val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = parseColor(bgColor, android.graphics.Color.TRANSPARENT)
+                style = android.graphics.Paint.Style.FILL
+            }
+            val bgRect = android.graphics.RectF(
+                cx - textBounds.width() / 2f - pad,
+                textY + textBounds.top - pad,
+                cx + textBounds.width() / 2f + pad,
+                textY + textBounds.bottom + pad
+            )
+            canvas.drawRoundRect(bgRect, pad / 2f, pad / 2f, bgPaint)
+        }
+
+        // Stroke (draw before fill so stroke is underneath)
+        val strokeColor = clip.textStrokeColor
+        if (strokeColor != null && clip.textStrokeWidth > 0) {
+            val strokePaint = android.graphics.Paint(paint).apply {
+                color = parseColor(strokeColor)
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = clip.textStrokeWidth * 4f
+                clearShadowLayer()
+            }
+            canvas.drawText(textParam, cx, textY, strokePaint)
+        }
+
+        // Fill text
+        paint.style = android.graphics.Paint.Style.FILL
+        canvas.drawText(textParam, cx, textY, paint)
+
         return bitmap
     }
 
@@ -557,17 +632,22 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
         Matrix.scaleM(mvpMatrix, 0, scaleX, scaleY, 1f)
 
         val filterType = when (clip.filter) {
-            "grayscale" -> 1
-            "sepia" -> 2
-            "vignette" -> 3
-            "invert" -> 4
-            else -> 0
+            "grayscale"  -> 1
+            "sepia"      -> 2
+            "vignette"   -> 3
+            "invert"     -> 4
+            "brightness" -> 5
+            "contrast"   -> 6
+            "saturation" -> 7
+            "warm"       -> 8
+            "cool"       -> 9
+            else         -> 0
         }
 
         if (isOES) {
-            textureRenderer!!.draw(texId, stMatrix, mvpMatrix, filterType, clip.filterIntensity)
+            textureRenderer!!.draw(texId, stMatrix, mvpMatrix, filterType, clip.filterIntensity, clip.opacity)
         } else {
-            textureRenderer!!.draw2D(texId, mvpMatrix, filterType)
+            textureRenderer!!.draw2D(texId, mvpMatrix, filterType, clip.opacity)
         }
     }
 

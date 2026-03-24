@@ -5,18 +5,29 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
 
+class VolumeKeyframeRecord : Record {
+        @Field val time: Double = 0.0
+        @Field val volume: Double = 1.0
+}
+
+class VolumeEnvelopeRecord : Record {
+        @Field val keyframes: List<VolumeKeyframeRecord> = emptyList()
+}
+
 class CompositionClipRecord : Record {
         @Field val uri: String = ""
         @Field val startTime: Double = 0.0
         @Field val duration: Double = 0.0
         @Field val filter: String? = null
         @Field val transition: String? = null
+        @Field val transitionDuration: Double = 0.0
         @Field val resizeMode: String = "cover"
         @Field val x: Double = 0.0
         @Field val y: Double = 0.0
         @Field val scale: Double = 1.0
         @Field val rotation: Double = 0.0
         @Field val volume: Double = 1.0
+        @Field val speed: Double = 1.0
         // Source trimming
         @Field val clipStart: Double = 0.0
         @Field val clipEnd: Double = -1.0
@@ -28,12 +39,20 @@ class CompositionClipRecord : Record {
         @Field val fadeOutDuration: Double = 0.0
         // Text/overlay styling
         @Field val text: String? = null
+        @Field val color: String = "#FFFFFF"   // flat alias (legacy)
         @Field val textColor: String = "#FFFFFF"
+        @Field val fontSize: Double = 64.0     // flat alias (legacy)
         @Field val textFontSize: Double = 64.0
+        @Field val textFontBold: Boolean = false
         @Field val textBackgroundColor: String? = null
+        @Field val textBackgroundPadding: Double = 8.0
         @Field val textShadowColor: String? = null
+        @Field val textShadowRadius: Double = 0.0
+        @Field val textShadowOffsetX: Double = 0.0
+        @Field val textShadowOffsetY: Double = 0.0
         @Field val textStrokeColor: String? = null
         @Field val textStrokeWidth: Double = 0.0
+        @Field val volumeEnvelope: VolumeEnvelopeRecord? = null
 }
 
 class CompositionTrackRecord : Record {
@@ -71,6 +90,25 @@ class CompressVideoRecord : Record {
 class MediaEngineModule : Module() {
         override fun definition() = ModuleDefinition {
                 Name("MediaEngine")
+
+                // MARK: - Preview View
+                View(MediaEnginePreviewView::class) {
+                        Events("onLoad", "onTimeUpdate", "onPlaybackEnded", "onError")
+
+                        Prop("config") { view: MediaEnginePreviewView, config: Map<String, Any?> ->
+                                view.updateConfig(config)
+                        }
+                        Prop("isPlaying") { view: MediaEnginePreviewView, playing: Boolean ->
+                                view.setPlaying(playing)
+                        }
+                        Prop("muted") { view: MediaEnginePreviewView, muted: Boolean ->
+                                view.setMuted(muted)
+                        }
+                        // Controlled seek — JS sets this to scrub the timeline when paused
+                        Prop("currentTime") { view: MediaEnginePreviewView, seconds: Double ->
+                                view.setCurrentTime(seconds)
+                        }
+                }
 
                 // MARK: - Waveform Generation
                 AsyncFunction("getWaveform") { audioUri: String, samples: Int ->
@@ -315,12 +353,14 @@ class MediaEngineModule : Module() {
                                                                         duration = clipRecord.duration,
                                                                         filter = clipRecord.filter,
                                                                         transition = clipRecord.transition,
+                                                                        transitionDuration = clipRecord.transitionDuration,
                                                                         resizeMode = clipRecord.resizeMode,
                                                                         x = clipRecord.x.toFloat(),
                                                                         y = clipRecord.y.toFloat(),
                                                                         scale = clipRecord.scale.toFloat(),
                                                                         rotation = clipRecord.rotation.toFloat(),
                                                                         volume = clipRecord.volume.toFloat(),
+                                                                        speed = clipRecord.speed,
                                                                         clipStart = clipRecord.clipStart,
                                                                         clipEnd = clipRecord.clipEnd,
                                                                         opacity = clipRecord.opacity.toFloat(),
@@ -328,12 +368,24 @@ class MediaEngineModule : Module() {
                                                                         fadeInDuration = clipRecord.fadeInDuration,
                                                                         fadeOutDuration = clipRecord.fadeOutDuration,
                                                                         text = clipRecord.text,
-                                                                        textColor = clipRecord.textColor,
-                                                                        textFontSize = clipRecord.textFontSize.toFloat(),
+                                                                        // Support both flat alias and textStyle-nested fields
+                                                                        textColor = clipRecord.textColor.takeIf { it != "#FFFFFF" }
+                                                                                ?: clipRecord.color,
+                                                                        textFontSize = (clipRecord.textFontSize.takeIf { it != 64.0 }
+                                                                                ?: clipRecord.fontSize).toFloat(),
+                                                                        textFontBold = clipRecord.textFontBold,
                                                                         textBackgroundColor = clipRecord.textBackgroundColor,
+                                                                        textBackgroundPadding = clipRecord.textBackgroundPadding.toFloat(),
                                                                         textShadowColor = clipRecord.textShadowColor,
+                                                                        textShadowRadius = clipRecord.textShadowRadius.toFloat(),
+                                                                        textShadowOffsetX = clipRecord.textShadowOffsetX.toFloat(),
+                                                                        textShadowOffsetY = clipRecord.textShadowOffsetY.toFloat(),
                                                                         textStrokeColor = clipRecord.textStrokeColor,
-                                                                        textStrokeWidth = clipRecord.textStrokeWidth.toFloat()
+                                                                        textStrokeWidth = clipRecord.textStrokeWidth.toFloat(),
+                                                                        volumeKeyframes = clipRecord.volumeEnvelope
+                                                                                ?.keyframes
+                                                                                ?.map { kf -> Pair(kf.time, kf.volume.toFloat()) }
+                                                                                ?: emptyList()
                                                                 )
                                                         }
                                                 CompositeVideoComposer.Track(type, clips)

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Changelog — Expo Media Engine</title>
+  <meta name="description" content="Release history for @projectyoked/expo-media-engine: stable 0.1.x and pre-release 1.0.0-alpha.">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://sirstig.github.io/projectyoked-expo-media-engine/changelog.html">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="site">
+    <div class="inner">
+      <a class="home" href="./">Expo Media Engine</a>
+      <nav class="site-nav">
+        <label for="doc-version" class="muted">Docs</label>
+        <select id="doc-version" class="version-select" aria-label="Documentation version">
+          <option value="./stable/">Stable (0.1.x)</option>
+          <option value="./alpha/">Pre-release (1.0.0-alpha)</option>
+        </select>
+        <a class="nav-aux" href="changelog.html" aria-current="page">Changelog</a>
+      </nav>
+    </div>
+  </header>
+
+  <aside class="used-strip" aria-label="Production use">
+    <a class="used-strip__inner" href="https://www.projectyoked.com">
+      <img class="used-strip__logo" src="https://projectyoked.com/assets/project-yoked-logo.png" alt="Project Yoked" width="112" height="28">
+      <div class="used-strip__copy">
+        <span class="used-strip__label">Used in production</span>
+        <span class="used-strip__sub">Project Yoked — workout training app (iOS and Android)</span>
+      </div>
+    </a>
+  </aside>
+
+  <main class="wrap">
+    <h1>Changelog</h1>
+    <p id="changelog-status" class="muted">Loading…</p>
+    <article id="changelog-body" class="changelog-prose" aria-live="polite"></article>
+
+    <footer class="site">
+      <p><a href="./">Home</a> · <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/CHANGELOG.md">View on GitHub</a></p>
+    </footer>
+  </main>
+
+  <script>
+    document.getElementById('doc-version').addEventListener('change', function () {
+      if (this.value) window.location.href = this.value;
+    });
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/marked.min.js"></script>
+  <script src="assets/changelog.js"></script>
+</body>
+</html>

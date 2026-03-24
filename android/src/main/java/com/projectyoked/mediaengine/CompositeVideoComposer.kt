@@ -62,6 +62,7 @@ class CompositeVideoComposer(private val context: Context, private val config: C
             val duration: Double,
             val filter: String? = null,
             val transition: String? = null,
+            val transitionDuration: Double = 0.0,
             // Transformations
             val resizeMode: String = "cover", // cover, contain, stretch
             val x: Float = 0f, // Normalized center -1..1
@@ -69,6 +70,8 @@ class CompositeVideoComposer(private val context: Context, private val config: C
             val scale: Float = 1f,
             val rotation: Float = 0f, // Degrees
             val volume: Float = 1.0f,
+            // Playback speed (1.0 = normal, 2.0 = 2x fast, 0.5 = half-speed)
+            val speed: Double = 1.0,
             // Source trimming
             val clipStart: Double = 0.0,
             val clipEnd: Double = -1.0,  // -1 = use full source
@@ -78,12 +81,19 @@ class CompositeVideoComposer(private val context: Context, private val config: C
             // Audio fade envelope
             val fadeInDuration: Double = 0.0,
             val fadeOutDuration: Double = 0.0,
+            // Volume keyframes [{time, volume}] — processed by AudioMixer
+            val volumeKeyframes: List<Pair<Double, Float>> = emptyList(),
             // Text/overlay content
             val text: String? = null,
             val textColor: String = "#FFFFFF",
             val textFontSize: Float = 64f,
+            val textFontBold: Boolean = false,
             val textBackgroundColor: String? = null,
+            val textBackgroundPadding: Float = 8f,
             val textShadowColor: String? = null,
+            val textShadowRadius: Float = 0f,
+            val textShadowOffsetX: Float = 0f,
+            val textShadowOffsetY: Float = 0f,
             val textStrokeColor: String? = null,
             val textStrokeWidth: Float = 0f
     )
@@ -119,10 +129,12 @@ class CompositeVideoComposer(private val context: Context, private val config: C
         if (config.enablePassthrough) {
             if (canSmartStitch()) {
                 Log.d(TAG, "Smart Stitching Triggered: Delegating to VideoStitcher")
-                VideoStitcher.stitch(
-                        config.tracks.flatMap { it.clips }.map { it.uri },
-                        config.outputUri
-                )
+                // Sort clips by startTime so stitching order matches the intended timeline
+                val orderedUris = config.tracks
+                        .flatMap { it.clips }
+                        .sortedBy { it.startTime }
+                        .map { it.uri }
+                VideoStitcher.stitch(orderedUris, config.outputUri)
                 return
             }
             if (canPassthrough()) {
@@ -244,11 +256,9 @@ class CompositeVideoComposer(private val context: Context, private val config: C
             // A safer approach is to only set it if explicitly needed, or handle exception.
             if (profile != MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline) {
                 format.setInteger(MediaFormat.KEY_PROFILE, profile)
-                // Level 4.1 is a safe bet for High/Main 1080p, but strictly we should check
-                // capabilities.
-                // Omitting Level might be rejected by some codecs.
-                // format.setInteger(MediaFormat.KEY_LEVEL,
-                // MediaCodecInfo.CodecProfileLevel.AVCLevel41)
+                // Level 4.1 covers 1080p@30fps for both Main and High profiles and is broadly
+                // supported. Some devices reject KEY_PROFILE without a paired KEY_LEVEL.
+                format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel41)
             }
         }
 

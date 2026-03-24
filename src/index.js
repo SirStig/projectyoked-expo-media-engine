@@ -1,5 +1,7 @@
 
 import { requireNativeModule } from 'expo-modules-core';
+export { MediaEnginePreview } from './MediaEnginePreview.js';
+export { useCompositionOverlays } from './useCompositionOverlays.js';
 
 let MediaEngine = null;
 try {
@@ -36,7 +38,11 @@ export default {
      */
     async getWaveform(audioUri, samples = 100) {
         if (!MediaEngine) return new Array(samples).fill(0.1);
-        return await MediaEngine.getWaveform(audioUri, samples);
+        try {
+            return await MediaEngine.getWaveform(audioUri, samples);
+        } catch (e) {
+            throw makeMediaEngineError(e, 'GET_WAVEFORM_FAILED');
+        }
     },
 
     /**
