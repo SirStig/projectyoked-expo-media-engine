@@ -3,7 +3,7 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 group = 'com.projectyoked.mediaengine'
-version = '1.0.0'
+version = '1.0.0-alpha-4'
 
 android {
   compileSdkVersion 35
@@ -12,8 +12,8 @@ android {
   defaultConfig {
     minSdkVersion 21
     targetSdkVersion 35
-    versionCode 1
-    versionName "1.0"
+    versionCode 2
+    versionName "1.0.0-alpha-4"
   }
 }
 

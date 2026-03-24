@@ -1,6 +1,6 @@
 # Documentation layout
 
-- **`docs/`** — Static HTML for GitHub Pages: home page, version switcher, [stable](docs/stable/) (`0.1.x`), [alpha](docs/alpha/) (`1.0.0-alpha.x`), and [changelog](docs/changelog.html) (renders `CHANGELOG.md`).
+- **`docs/`** — Static HTML for GitHub Pages: home page, version switcher, [stable](docs/stable/) (`0.1.x`), [alpha](docs/alpha/) (`1.0.0-alpha.x`, includes **Platform notes** for iOS export behavior, Simulator, and Metro), and [changelog](docs/changelog.html) (renders `CHANGELOG.md`).
 - **`README.md`** — Short entry point; defers detail to the hosted docs.
 
 The **Deploy documentation** workflow copies `CHANGELOG.md` to `docs/changelog.md` and `src/index.d.ts` to `docs/assets/index.d.ts` before upload. `docs/changelog.md` stays in `.gitignore` (not committed). The changelog page fetches `changelog.md` next to `changelog.html`, then falls back to the raw `CHANGELOG.md` on GitHub if that file is missing (e.g. local preview without a copy).

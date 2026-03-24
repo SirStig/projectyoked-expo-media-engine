@@ -313,7 +313,8 @@ li strong { color: var(--text); }
 }
 
 .doc-section h3 { margin: 1.75rem 0 0.7rem; color: var(--text); }
-.doc-section p { margin: 0.6rem 0; }
+.doc-section p { margin: 0.6rem 0; line-height: 1.65; }
+.doc-section p + p { margin-top: 0.85rem; }
 .doc-section > ul, .doc-section > ol { margin: 0.65rem 0; }
 
 #docSectionPanels .doc-section { display: none; }
@@ -712,6 +713,13 @@ tbody tr:hover td { background: var(--glass); }
 }
 .callout-warn p { color: var(--warn-text); }
 .callout-warn strong { color: var(--warn-text); }
+
+.callout-info {
+  border-left-color: var(--accent2);
+  background: var(--accent2-dim);
+}
+.callout-info p { color: var(--muted); }
+.callout-info strong { color: var(--text); }
 
 /* Step list */
 .step-list { list-style: none; padding: 0; margin: 0.75rem 0; counter-reset: steps; }

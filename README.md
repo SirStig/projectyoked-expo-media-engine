@@ -32,13 +32,15 @@ npm install @projectyoked/expo-media-engine
 npx expo prebuild
 ```
 
-The current pre-release line (for example `1.0.0-alpha-3`) is what npm installs by default. To stay on the legacy **0.1.x** stable line, pin the version:
+The current pre-release line (for example `1.0.0-alpha-4`) is what npm installs by default. To stay on the legacy **0.1.x** stable line, pin the version:
 
 ```bash
 npm install @projectyoked/expo-media-engine@0.1.3
 ```
 
 This package requires a native build. Expo Go is not supported — use a [development build](https://docs.expo.dev/develop/development-builds/introduction/).
+
+**Linking from a monorepo or local path?** Point Metro at a single `react-native` copy. If the package resolves its own tree, `MediaEnginePreview` can fail to register. Use `withMediaEngineMonorepoResolver` from this repo’s `metro-preset.js` — the example app’s `metro.config.js` shows the pattern.
 
 **Requirements**
 
@@ -205,6 +207,8 @@ await MediaEngine.extractAudio('file:///video.mp4', 'file:///audio.m4a');
 | `extractAudio(videoUri, outputUri)` | Extract audio track to `.m4a` |
 | `exportComposition(config)` | Legacy single-video + overlay export |
 | `isAvailable()` | Returns `false` if the native module is not linked |
+
+**iOS:** Heavy work is serialized — `composeCompositeVideo`, `exportComposition`, `stitchVideos`, and `compressVideo` won’t run on top of each other. Exports with text or image overlays use **two passes** (encode the base video first, then apply Core Animation on a second export). That keeps Simulator stable and matches how we handle trims and transitions on device: timeline `duration` is honored for trimmed clips, and transition overlaps use a proper multi-track compositor path.
 
 ### `MediaEnginePreview` (named export)
 

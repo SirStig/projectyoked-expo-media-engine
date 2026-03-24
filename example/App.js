@@ -124,6 +124,7 @@ export default function App() {
     setRunning(true);
     setSuiteOutcome('running');
     setPreviewLoaded(false);
+    await new Promise((r) => setTimeout(r, 0));
 
     const ctx = {
       videoA: assets.videoA,
@@ -291,7 +292,7 @@ export default function App() {
         )}
       </View>
 
-      {ready && previewConfig && (
+      {ready && previewConfig && !running && (
         <ScrollView horizontal style={styles.previewRow}>
           <View style={styles.previewBox}>
             <Text style={styles.previewLabel}>MediaEnginePreview</Text>

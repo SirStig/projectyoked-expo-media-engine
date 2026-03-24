@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-alpha-4] - 2026-03-24
+
+### Fixed
+
+**iOS exports**
+
+- **Trims (`clipStart` / `clipEnd`)** — If the piece of source you select was longer than the clip’s timeline `duration`, export could fail on a real device (often as “Operation Stopped”). We now stretch or squeeze that segment to match `duration`, the same way we already handle `speed`.
+- **Transitions between clips** — Overlapping clips are no longer jammed onto one AVFoundation track with conflicting instructions. Each clip gets its own track; the custom compositor blends them across the overlap with the right progress. Filters still apply on top of scaled-to-frame video.
+
+**iOS Simulator**
+
+- **Crashes with text/image overlays** — Those exports now run in **two passes**: encode video (and filters) first, then apply Core Animation overlays in a second session. Mixing the CIFilter compositor and `AVVideoCompositionCoreAnimationTool` in one go was brittle on Simulator (IOSurface / Core Animation issues). Real devices were generally fine, but the split is safer everywhere.
+
+**Build and module wiring**
+
+- **Swift parse error** — `MediaEnginePreview`’s `View { }` block had ended up inside `composeCompositeVideo`; the compiler quite reasonably refused. It’s back under the module `definition()` only.
+- **Track IDs in custom compositor instructions** — Uses `NSNumber(value:)` so current Apple SDKs are happy.
+
+**Android (example app & native)**
+
+- **Integration suite thought every output was missing** — On Android, Expo’s legacy `getInfoAsync` only treats paths as real files when the URI has a `file` scheme. Our helper was stripping `file://` and passing a bare `/data/...` path, which quietly fell through the wrong branch and always looked empty. iOS didn’t care; Android did. The example now keeps a proper `file://` URI for those checks.
+- **`stitchVideos` never fell back when the fast path died** — The mp4parser stitcher can throw an `AssertionError`, which is an `Error`, not an `Exception`, so the `catch` around the fast path never ran and transcoding never kicked in. We now catch `Throwable` there (and align legacy export / `composeCompositeVideo` the same way) so failures are handled predictably and you get a sensible error message when something still goes wrong.
+
+### Changed
+
+- **iOS podspec** — Swift language version bumped from 5.4 to 5.10 for Expo / current Xcode.
+
+### Notes
+
+- **Swift 6** — iOS sources use `@preconcurrency import AVFoundation`, Sendable-friendly types where `AVVideoCompositing` requires them, and small `@retroactive` / `Any` fixes for `compressVideo` and the legacy export bridge.
+- **`MediaEnginePreview`** — Registered as its own Expo module (`MediaEnginePreview` / `MediaEnginePreviewView`). If you **link this repo from a monorepo**, Metro can pull in a second `react-native` and break view registration (`View config getter callback … undefined`). Use `withMediaEngineMonorepoResolver` from `metro-preset.js` (see `example/metro.config.js`).
+- **Example app** — Still unmounts preview while the integration suite runs so export and preview don’t step on each other.
+
+---
+
 ## [1.0.0-alpha-3] - 2026-03-23
 
 ### Fixed

@@ -1,8 +1,12 @@
 
 import ExpoModulesCore
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreImage
+import QuartzCore
 import UIKit
+
+extension AVAssetWriterInput: @retroactive @unchecked Sendable {}
+extension AVAssetReaderTrackOutput: @retroactive @unchecked Sendable {}
 
 // MARK: - CIFilter Custom Video Compositor
 
@@ -39,24 +43,24 @@ class MediaEngineInstruction: NSObject, AVVideoCompositionInstructionProtocol {
         self.transitionTrackID = transitionTrackID
         self.transitionProgress = transitionProgress
         self.transitionType = transitionType
-        var ids: [NSValue] = [NSValue(cmPersistentTrackID: trackID)]
+        self.containsTweening = transitionTrackID > 0
+        var ids: [NSValue] = [NSNumber(value: trackID)]
         if transitionTrackID > 0 {
-            ids.append(NSValue(cmPersistentTrackID: transitionTrackID))
+            ids.append(NSNumber(value: transitionTrackID))
         }
         self.requiredSourceTrackIDs = ids
     }
 }
 
 /// Custom compositor that applies CIFilters, opacity, and transitions per frame.
-class MediaEngineCompositor: NSObject, AVVideoCompositing {
-    var sourcePixelBufferAttributes: [String: Any]? = [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
+final class MediaEngineCompositor: NSObject, AVVideoCompositing {
+    private static let pixelBufferAttributePairs: [String: any Sendable] = [
+        kCVPixelBufferPixelFormatTypeKey as String: UInt32(kCVPixelFormatType_32BGRA),
+        kCVPixelBufferIOSurfacePropertiesKey as String: [String: String](),
     ]
-    var requiredPixelBufferAttributesForRenderContext: [String: Any] = [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
-    ]
+
+    var sourcePixelBufferAttributes: [String: any Sendable]? { Self.pixelBufferAttributePairs }
+    var requiredPixelBufferAttributesForRenderContext: [String: any Sendable] { Self.pixelBufferAttributePairs }
 
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -71,7 +75,8 @@ class MediaEngineCompositor: NSObject, AVVideoCompositing {
             return
         }
 
-        var output = CIImage(cvPixelBuffer: srcBuffer)
+        let renderCtx = request.renderContext
+        var output = Self.scaleSourceToRenderSize(CIImage(cvPixelBuffer: srcBuffer), renderContext: renderCtx)
 
         // 1. Apply filter
         output = applyFilter(output, type: instruction.filterType, intensity: instruction.filterIntensity)
@@ -83,14 +88,29 @@ class MediaEngineCompositor: NSObject, AVVideoCompositing {
             ])
         }
 
-        // 3. Apply transition if a second track is available
-        if instruction.transitionTrackID > 0, instruction.transitionProgress > 0,
+        // 3. Apply transition if a second track is available (progress from timeline position)
+        let transitionProgress: Float
+        if instruction.transitionTrackID > 0 {
+            let tr = instruction.timeRange
+            let t = request.compositionTime
+            let span = CMTimeGetSeconds(tr.duration)
+            if span > 1e-9 {
+                let p = CMTimeGetSeconds(CMTimeSubtract(t, tr.start)) / span
+                transitionProgress = Float(min(1, max(0, p)))
+            } else {
+                transitionProgress = 0
+            }
+        } else {
+            transitionProgress = instruction.transitionProgress
+        }
+
+        if instruction.transitionTrackID > 0,
            let transBuffer = request.sourceFrame(byTrackID: instruction.transitionTrackID) {
-            let transImage = CIImage(cvPixelBuffer: transBuffer)
+            let transImage = Self.scaleSourceToRenderSize(CIImage(cvPixelBuffer: transBuffer), renderContext: renderCtx)
             output = applyTransition(from: output, to: transImage,
                                      type: instruction.transitionType,
-                                     progress: instruction.transitionProgress,
-                                     size: output.extent.size)
+                                     progress: transitionProgress,
+                                     size: renderCtx.size)
         }
 
         guard let outBuffer = request.renderContext.newPixelBuffer() else {
@@ -215,6 +235,51 @@ class MediaEngineCompositor: NSObject, AVVideoCompositing {
                 "inputTargetImage": incoming, "inputTime": p
             ])
         }
+    }
+
+    private static func scaleSourceToRenderSize(_ image: CIImage, renderContext: AVVideoCompositionRenderContext) -> CIImage {
+        let target = renderContext.size
+        let w = image.extent.width
+        let h = image.extent.height
+        guard w > 1, h > 1 else { return image }
+        let rw = target.width
+        let rh = target.height
+        let scale = max(rw / w, rh / h)
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let ext = scaled.extent
+        let tx = (rw - ext.width) / 2 - ext.origin.x
+        let ty = (rh - ext.height) / 2 - ext.origin.y
+        return scaled.transformed(by: CGAffineTransform(translationX: tx, y: ty))
+            .cropped(to: CGRect(origin: .zero, size: target))
+    }
+}
+
+// MARK: - Heavy media serialization (Swift 6: NSLock is unavailable across await)
+
+private actor MediaEngineHeavyMediaSerializer {
+    static let shared = MediaEngineHeavyMediaSerializer()
+    func run<T: Sendable>(_ body: @Sendable () async throws -> T) async rethrows -> T {
+        try await body()
+    }
+}
+
+private final class ComposeCompositeConfigBox: @unchecked Sendable {
+    let config: [String: Any]
+    init(_ config: [String: Any]) { self.config = config }
+}
+
+private final class CALayerCleanupTarget: @unchecked Sendable {
+    let parent: CALayer
+    init(parent: CALayer) { self.parent = parent }
+
+    func removeAllSublayers() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let subs = parent.sublayers ?? []
+        for layer in subs {
+            layer.removeFromSuperlayer()
+        }
+        CATransaction.commit()
     }
 }
 
@@ -402,15 +467,30 @@ public class MediaEngineModule: Module {
                  tracks.append(["type": "text", "clips": emojiClips])
              }
 
+             let videoBitrateForAdvanced: Any
+             if let v = config["videoBitrate"] {
+                 videoBitrateForAdvanced = v
+             } else if let v = config["bitrate"] {
+                 videoBitrateForAdvanced = v
+             } else {
+                 videoBitrateForAdvanced = NSNull()
+             }
+             let audioBitrateForAdvanced: Any
+             if let v = config["audioBitrate"] {
+                 audioBitrateForAdvanced = v
+             } else {
+                 audioBitrateForAdvanced = NSNull()
+             }
+
              let advancedConfig: [String: Any] = [
                  "outputUri": outputPath,
                  "width": 1280,
                  "height": 720,
                  "frameRate": 30,
-                 "videoBitrate": config["videoBitrate"] ?? config["bitrate"],
-                 "audioBitrate": config["audioBitrate"],
+                 "videoBitrate": videoBitrateForAdvanced,
+                 "audioBitrate": audioBitrateForAdvanced,
                  "enablePassthrough": config["enablePassthrough"] ?? true,
-                 "tracks": tracks
+                 "tracks": tracks,
              ]
 
              return try await composeCompositeVideoImpl(advancedConfig)
@@ -423,11 +503,20 @@ public class MediaEngineModule: Module {
 
         // MARK: - Utilities
         AsyncFunction("stitchVideos") { (videoPaths: [String], outputUri: String) -> String in
-            return try await VideoStitcher.stitch(videoPaths: videoPaths, outputUri: outputUri)
+            try await MediaEngineHeavyMediaSerializer.shared.run {
+                try await VideoStitcher.stitch(videoPaths: videoPaths, outputUri: outputUri)
+            }
         }
 
         // MARK: - Video Compression
         AsyncFunction("compressVideo") { (config: [String: Any]) -> String in
+            try await MediaEngineHeavyMediaSerializer.shared.run {
+                try await Self.compressVideoBody(config)
+            }
+        }
+    }
+
+    private static func compressVideoBody(_ config: [String: Any]) async throws -> String {
             guard let inputUri = config["inputUri"] as? String,
                   let outputUri = config["outputUri"] as? String else {
                 throw NSError(domain: "MediaEngine", code: 1, userInfo: [
@@ -604,17 +693,182 @@ public class MediaEngineModule: Module {
             await writer.finishWriting()
             reader.cancelReading()
 
-            if writer.status == .completed {
-                return outputUri
-            } else {
-                throw NSError(domain: "MediaEngine", code: 4, userInfo: [
-                    NSLocalizedDescriptionKey: "Compression of \(inputPath) failed: \(writer.error?.localizedDescription ?? "unknown")"
-                ])
-            }
+        if writer.status == .completed {
+            return outputUri
+        }
+        throw NSError(domain: "MediaEngine", code: 4, userInfo: [
+            NSLocalizedDescriptionKey: "Compression of \(inputPath) failed: \(writer.error?.localizedDescription ?? "unknown")"
+        ])
+    }
+
+    private static func videoClipsTimelineOverlap(_ clips: [[String: Any]]) -> Bool {
+        var intervals: [(Double, Double)] = []
+        for clip in clips {
+            guard let start = clip["startTime"] as? Double,
+                  let dur = clip["duration"] as? Double else { continue }
+            intervals.append((start, start + dur))
+        }
+        guard intervals.count >= 2 else { return false }
+        for i in 0..<(intervals.count - 1) where intervals[i + 1].0 < intervals[i].1 - 1e-4 {
+            return true
+        }
+        return false
+    }
+
+    private static func scaleInsertedVideoToTimelineDuration(
+        composition: AVMutableComposition,
+        insertAt: CMTime,
+        insertedSourceDuration: CMTime,
+        timelineDurationSeconds: Double
+    ) {
+        let insertedRange = CMTimeRange(start: insertAt, duration: insertedSourceDuration)
+        let target = CMTime(seconds: timelineDurationSeconds, preferredTimescale: 600)
+        if CMTimeCompare(insertedRange.duration, target) != 0 {
+            composition.scaleTimeRange(insertedRange, toDuration: target)
         }
     }
 
+    /// Overlapping clips each get their own composition track; segment instructions avoid overlapping time ranges.
+    private static func insertOverlappingVideoClipsAndInstructions(
+        clips: [[String: Any]],
+        composition: AVMutableComposition
+    ) async throws -> [any AVVideoCompositionInstructionProtocol] {
+        struct ClipSlot {
+            let start: Double
+            let end: Double
+            let trackID: CMPersistentTrackID
+            let clip: [String: Any]
+        }
+
+        var slots: [ClipSlot] = []
+
+        for clip in clips {
+            guard let uri = clip["uri"] as? String,
+                  let startTime = clip["startTime"] as? Double,
+                  let duration = clip["duration"] as? Double else { continue }
+
+            let videoPath = uri.replacingOccurrences(of: "file://", with: "")
+            let videoURL = URL(fileURLWithPath: videoPath)
+            let asset = AVAsset(url: videoURL)
+
+            guard let assetTrack = try? await asset.loadTracks(withMediaType: .video).first,
+                  let compTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                continue
+            }
+
+            let clipStart = clip["clipStart"] as? Double ?? 0.0
+            let clipEndVal = clip["clipEnd"] as? Double ?? -1.0
+            let speed = max(0.01, clip["speed"] as? Double ?? 1.0)
+            let clipStartCM = CMTime(seconds: clipStart, preferredTimescale: 600)
+            let assetDuration = (try? await asset.load(.duration)) ?? CMTime(seconds: duration * speed, preferredTimescale: 600)
+
+            let sourceRange: CMTimeRange
+            if clipEndVal > 0 {
+                let clipEndCM = CMTime(seconds: clipEndVal * speed, preferredTimescale: 600)
+                sourceRange = CMTimeRange(start: clipStartCM, end: clipEndCM)
+            } else {
+                let remaining = CMTimeSubtract(assetDuration, clipStartCM)
+                let requestedSource = CMTime(seconds: duration * speed, preferredTimescale: 600)
+                sourceRange = CMTimeRange(start: clipStartCM, duration: CMTimeMinimum(remaining, requestedSource))
+            }
+
+            let insertAt = CMTime(seconds: startTime, preferredTimescale: 600)
+
+            do {
+                try compTrack.insertTimeRange(sourceRange, of: assetTrack, at: insertAt)
+            } catch {
+                throw NSError(domain: "MediaEngine", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "Failed to insert video track from \(videoPath): \(error.localizedDescription)"
+                ])
+            }
+
+            Self.scaleInsertedVideoToTimelineDuration(
+                composition: composition,
+                insertAt: insertAt,
+                insertedSourceDuration: sourceRange.duration,
+                timelineDurationSeconds: duration
+            )
+
+            slots.append(ClipSlot(
+                start: startTime,
+                end: startTime + duration,
+                trackID: compTrack.trackID,
+                clip: clip
+            ))
+        }
+
+        guard !slots.isEmpty else { return [] }
+
+        var boundarySet = Set<Double>()
+        for s in slots {
+            boundarySet.insert(s.start)
+            boundarySet.insert(s.end)
+        }
+        let boundaries = boundarySet.sorted()
+
+        var result: [any AVVideoCompositionInstructionProtocol] = []
+        for i in 0..<(boundaries.count - 1) {
+            let t0 = boundaries[i]
+            let t1 = boundaries[i + 1]
+            if t1 - t0 < 1e-6 { continue }
+
+            let mid = (t0 + t1) / 2
+            let activeIndices = slots.indices.filter { slots[$0].start <= mid && mid < slots[$0].end }
+
+            if activeIndices.count == 1 {
+                let idx = activeIndices[0]
+                let s = slots[idx]
+                let filterType = s.clip["filter"] as? String ?? "none"
+                let filterIntensity = Float(s.clip["filterIntensity"] as? Double ?? 1.0)
+                let opacity = Float(s.clip["opacity"] as? Double ?? 1.0)
+                result.append(MediaEngineInstruction(
+                    timeRange: CMTimeRange(
+                        start: CMTime(seconds: t0, preferredTimescale: 600),
+                        duration: CMTime(seconds: t1 - t0, preferredTimescale: 600)
+                    ),
+                    trackID: s.trackID,
+                    filterType: filterType,
+                    filterIntensity: filterIntensity,
+                    opacity: opacity
+                ))
+            } else if activeIndices.count >= 2 {
+                let sortedIdx = activeIndices.sorted()
+                guard sortedIdx.count == 2, sortedIdx[1] == sortedIdx[0] + 1 else { continue }
+                let outIdx = sortedIdx[0]
+                let inIdx = sortedIdx[1]
+                let outgoing = slots[outIdx]
+                let incoming = slots[inIdx]
+                let transType = outgoing.clip["transition"] as? String ?? "crossfade"
+                let filterType = outgoing.clip["filter"] as? String ?? "none"
+                let filterIntensity = Float(outgoing.clip["filterIntensity"] as? Double ?? 1.0)
+                let opacity = Float(outgoing.clip["opacity"] as? Double ?? 1.0)
+                result.append(MediaEngineInstruction(
+                    timeRange: CMTimeRange(
+                        start: CMTime(seconds: t0, preferredTimescale: 600),
+                        duration: CMTime(seconds: t1 - t0, preferredTimescale: 600)
+                    ),
+                    trackID: outgoing.trackID,
+                    filterType: filterType,
+                    filterIntensity: filterIntensity,
+                    opacity: opacity,
+                    transitionTrackID: incoming.trackID,
+                    transitionProgress: 0,
+                    transitionType: transType
+                ))
+            }
+        }
+
+        return result
+    }
+
     private func composeCompositeVideoImpl(_ config: [String: Any]) async throws -> String {
+        let box = ComposeCompositeConfigBox(config)
+        return try await MediaEngineHeavyMediaSerializer.shared.run {
+            try await Self.composeCompositeVideoImplBody(box.config)
+        }
+    }
+
+    private static func composeCompositeVideoImplBody(_ config: [String: Any]) async throws -> String {
             guard let outputUri = config["outputUri"] as? String else {
                 throw NSError(domain: "MediaEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing outputUri"])
             }
@@ -622,6 +876,11 @@ public class MediaEngineModule: Module {
             let width = config["width"] as? Double ?? 1280
             let height = config["height"] as? Double ?? 720
             let frameRate = config["frameRate"] as? Int ?? 30
+#if targetEnvironment(simulator)
+            let overlayContentsScale: CGFloat = 1.0
+#else
+            let overlayContentsScale = await MainActor.run { CGFloat(UIScreen.main.scale) }
+#endif
 
             let enablePassthrough = config["enablePassthrough"] as? Bool ?? true
 
@@ -658,7 +917,8 @@ public class MediaEngineModule: Module {
             videoComposition.renderSize = CGSize(width: width, height: height)
             videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate))
 
-            var instructions: [AVVideoCompositionInstruction] = []
+            var instructions: [any AVVideoCompositionInstructionProtocol] = []
+            var overlapCompositorVideo = false
 
             let outputURL = URL(fileURLWithPath: outputUri.replacingOccurrences(of: "file://", with: ""))
             try? FileManager.default.removeItem(at: outputURL)
@@ -681,6 +941,14 @@ public class MediaEngineModule: Module {
                 let clips = trackData["clips"] as? [[String: Any]] ?? []
 
                 if type == "video" {
+                    if Self.videoClipsTimelineOverlap(clips) {
+                        let overlapInstr = try await Self.insertOverlappingVideoClipsAndInstructions(
+                            clips: clips,
+                            composition: composition
+                        )
+                        instructions.append(contentsOf: overlapInstr)
+                        overlapCompositorVideo = true
+                    } else {
                     let compTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
 
                     for clip in clips {
@@ -724,12 +992,12 @@ public class MediaEngineModule: Module {
                             ])
                         }
 
-                        // Speed: scale inserted content to fit the desired timeline duration
-                        if abs(speed - 1.0) > 0.001 {
-                            let insertedRange = CMTimeRange(start: insertAt, duration: sourceRange.duration)
-                            let targetDuration = CMTime(seconds: duration, preferredTimescale: 600)
-                            composition.scaleTimeRange(insertedRange, toDuration: targetDuration)
-                        }
+                        Self.scaleInsertedVideoToTimelineDuration(
+                            composition: composition,
+                            insertAt: insertAt,
+                            insertedSourceDuration: sourceRange.duration,
+                            timelineDurationSeconds: duration
+                        )
 
                         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compTrack!)
 
@@ -787,6 +1055,7 @@ public class MediaEngineModule: Module {
                         instruction.timeRange = CMTimeRange(start: insertAt, duration: CMTime(seconds: duration, preferredTimescale: 600))
                         instruction.layerInstructions = [layerInstruction]
                         instructions.append(instruction)
+                    }
                     }
 
                 } else if type == "audio" {
@@ -920,7 +1189,7 @@ public class MediaEngineModule: Module {
                         textLayer.fontSize = CGFloat(fontSize)
                         textLayer.foregroundColor = UIColor(hex: colorHex)?.cgColor ?? UIColor.white.cgColor
                         textLayer.alignmentMode = .center
-                        textLayer.contentsScale = UIScreen.main.scale
+                        textLayer.contentsScale = overlayContentsScale
                         textLayer.isWrapped = true
 
                         let w = CGFloat(width) * 0.8
@@ -958,16 +1227,17 @@ public class MediaEngineModule: Module {
                         let bgPadding = clip["backgroundPadding"] as? Double ?? 8.0
                         if let bgHex = clip["backgroundColor"] as? String {
                             let bgLayer = CALayer()
+                            bgLayer.contentsScale = overlayContentsScale
                             bgLayer.backgroundColor = UIColor(hex: bgHex)?.cgColor
                             bgLayer.cornerRadius = 4
                             bgLayer.frame = textLayer.frame.insetBy(dx: -bgPadding, dy: -bgPadding / 2)
                             bgLayer.opacity = 0
-                            addTimingAnimation(to: bgLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
+                            Self.addTimingAnimation(to: bgLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
                             parentLayer.addSublayer(bgLayer)
                         }
 
                         textLayer.opacity = 0
-                        addTimingAnimation(to: textLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
+                        Self.addTimingAnimation(to: textLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
                         parentLayer.addSublayer(textLayer)
                     }
 
@@ -991,6 +1261,7 @@ public class MediaEngineModule: Module {
 
                         let imgLayer = CALayer()
                         imgLayer.contents = image.cgImage
+                        imgLayer.contentsScale = overlayContentsScale
                         imgLayer.contentsGravity = .resizeAspectFill
                         imgLayer.frame = CGRect(
                             x: CGFloat(x) * CGFloat(width) - imgW / 2,
@@ -1004,7 +1275,7 @@ public class MediaEngineModule: Module {
                             )
                         }
                         imgLayer.opacity = 0
-                        addTimingAnimation(to: imgLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
+                        Self.addTimingAnimation(to: imgLayer, startTime: startTime, duration: clipDuration, maxOpacity: clipOpacity)
                         parentLayer.addSublayer(imgLayer)
                     }
                 }
@@ -1012,52 +1283,43 @@ public class MediaEngineModule: Module {
 
             videoComposition.instructions = instructions
 
-            // Detect whether any video clip uses a filter or custom opacity — if so, plug in
-            // the CIFilter custom compositor instead of the built-in compositor.
-            let needsCompositor = !usePassthrough && tracks.contains { track in
-                let type = track["type"] as? String ?? ""
-                guard type == "video" else { return false }
-                let clips = track["clips"] as? [[String: Any]] ?? []
-                return clips.contains { clip in
-                    let hasFilter = (clip["filter"] as? String) != nil
-                    let hasLowOpacity = (clip["opacity"] as? Double ?? 1.0) < 0.999
-                    return hasFilter || hasLowOpacity
+            let hasFilterOrLowOpacity = tracks.contains { track in
+                let t = track["type"] as? String ?? ""
+                guard t == "video" else { return false }
+                let vClips = track["clips"] as? [[String: Any]] ?? []
+                return vClips.contains { clip in
+                    (clip["filter"] as? String) != nil || (clip["opacity"] as? Double ?? 1.0) < 0.999
                 }
             }
+            let needsCompositor = !usePassthrough && (hasFilterOrLowOpacity || overlapCompositorVideo)
             if needsCompositor {
                 videoComposition.customVideoCompositorClass = MediaEngineCompositor.self
-                // Replace standard instructions with MediaEngineInstructions
-                var customInstructions: [AVVideoCompositionInstructionProtocol] = []
-                for trackData in tracks where (trackData["type"] as? String) == "video" {
-                    let tClips = trackData["clips"] as? [[String: Any]] ?? []
-                    for clip in tClips {
-                        guard let startTime = clip["startTime"] as? Double,
-                              let dur = clip["duration"] as? Double else { continue }
-                        let filterType = clip["filter"] as? String ?? "none"
-                        let filterIntensity = Float(clip["filterIntensity"] as? Double ?? 1.0)
-                        let opacity = Float(clip["opacity"] as? Double ?? 1.0)
-                        let trackID = composition.tracks(withMediaType: .video).first?.trackID ?? 1
-                        let instr = MediaEngineInstruction(
-                            timeRange: CMTimeRange(
-                                start: CMTime(seconds: startTime, preferredTimescale: 600),
-                                duration: CMTime(seconds: dur, preferredTimescale: 600)
-                            ),
-                            trackID: trackID,
-                            filterType: filterType,
-                            filterIntensity: filterIntensity,
-                            opacity: opacity
-                        )
-                        customInstructions.append(instr)
+                if hasFilterOrLowOpacity && !overlapCompositorVideo {
+                    var customInstructions: [any AVVideoCompositionInstructionProtocol] = []
+                    for trackData in tracks where (trackData["type"] as? String) == "video" {
+                        let tClips = trackData["clips"] as? [[String: Any]] ?? []
+                        for clip in tClips {
+                            guard let startTime = clip["startTime"] as? Double,
+                                  let dur = clip["duration"] as? Double else { continue }
+                            let filterType = clip["filter"] as? String ?? "none"
+                            let filterIntensity = Float(clip["filterIntensity"] as? Double ?? 1.0)
+                            let opacity = Float(clip["opacity"] as? Double ?? 1.0)
+                            let trackID = composition.tracks(withMediaType: .video).first?.trackID ?? 1
+                            let instr = MediaEngineInstruction(
+                                timeRange: CMTimeRange(
+                                    start: CMTime(seconds: startTime, preferredTimescale: 600),
+                                    duration: CMTime(seconds: dur, preferredTimescale: 600)
+                                ),
+                                trackID: trackID,
+                                filterType: filterType,
+                                filterIntensity: filterIntensity,
+                                opacity: opacity
+                            )
+                            customInstructions.append(instr)
+                        }
                     }
+                    videoComposition.instructions = customInstructions
                 }
-                videoComposition.instructions = customInstructions
-            }
-
-            if hasOverlays {
-                videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
-                    postProcessingAsVideoLayer: videoLayer,
-                    in: parentLayer
-                )
             }
 
             // Select export preset based on requested bitrate (coarse mapping)
@@ -1075,6 +1337,103 @@ public class MediaEngineModule: Module {
                 presetName = AVAssetExportPresetPassthrough
             }
 
+            let needsOverlaySecondPass = hasOverlays && !usePassthrough
+
+            if needsOverlaySecondPass {
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("me-compose-pass1-\(UUID().uuidString).mp4")
+                try? FileManager.default.removeItem(at: tempURL)
+                defer { try? FileManager.default.removeItem(at: tempURL) }
+
+                guard let pass1 = AVAssetExportSession(asset: composition, presetName: presetName) else {
+                    throw NSError(domain: "MediaEngine", code: 4, userInfo: [
+                        NSLocalizedDescriptionKey: "Failed to create pass-1 export session",
+                    ])
+                }
+                pass1.outputURL = tempURL
+                pass1.outputFileType = .mp4
+                pass1.videoComposition = videoComposition
+                if !audioMixParams.isEmpty {
+                    let audioMix = AVMutableAudioMix()
+                    audioMix.inputParameters = audioMixParams
+                    pass1.audioMix = audioMix
+                }
+                await pass1.export()
+                guard pass1.status == .completed else {
+                    throw NSError(domain: "MediaEngine", code: 5, userInfo: [
+                        NSLocalizedDescriptionKey: "Video pass-1 export failed: \(pass1.error?.localizedDescription ?? "Unknown error")",
+                    ])
+                }
+
+                let pass1Asset = AVAsset(url: tempURL)
+                let pass1Duration = try await pass1Asset.load(.duration)
+                guard let srcVideo = try await pass1Asset.loadTracks(withMediaType: .video).first else {
+                    throw NSError(domain: "MediaEngine", code: 5, userInfo: [
+                        NSLocalizedDescriptionKey: "Pass-1 output has no video track",
+                    ])
+                }
+
+                let composition2 = AVMutableComposition()
+                guard let vComp2 = composition2.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    throw NSError(domain: "MediaEngine", code: 4, userInfo: [
+                        NSLocalizedDescriptionKey: "Failed to add pass-2 video track",
+                    ])
+                }
+                try vComp2.insertTimeRange(CMTimeRange(start: .zero, duration: pass1Duration), of: srcVideo, at: .zero)
+
+                for srcAudio in try await pass1Asset.loadTracks(withMediaType: .audio) {
+                    guard let aComp = composition2.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                        continue
+                    }
+                    try aComp.insertTimeRange(CMTimeRange(start: .zero, duration: pass1Duration), of: srcAudio, at: .zero)
+                }
+
+                let videoComposition2 = AVMutableVideoComposition()
+                videoComposition2.renderSize = CGSize(width: width, height: height)
+                videoComposition2.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate))
+                let layerInstruction2 = AVMutableVideoCompositionLayerInstruction(assetTrack: vComp2)
+                let preferredTransform = try await srcVideo.load(.preferredTransform)
+                layerInstruction2.setTransform(preferredTransform, at: .zero)
+                let instruction2 = AVMutableVideoCompositionInstruction()
+                instruction2.timeRange = CMTimeRange(start: .zero, duration: pass1Duration)
+                instruction2.layerInstructions = [layerInstruction2]
+                videoComposition2.instructions = [instruction2]
+                videoComposition2.animationTool = AVVideoCompositionCoreAnimationTool(
+                    postProcessingAsVideoLayer: videoLayer,
+                    in: parentLayer
+                )
+
+                guard let pass2 = AVAssetExportSession(asset: composition2, presetName: presetName) else {
+                    throw NSError(domain: "MediaEngine", code: 4, userInfo: [
+                        NSLocalizedDescriptionKey: "Failed to create pass-2 export session",
+                    ])
+                }
+                pass2.outputURL = outputURL
+                pass2.outputFileType = .mp4
+                pass2.videoComposition = videoComposition2
+
+                await pass2.export()
+
+                if hasOverlays {
+                    let cleanup = CALayerCleanupTarget(parent: parentLayer)
+                    await MainActor.run { cleanup.removeAllSublayers() }
+                }
+
+                guard pass2.status == .completed else {
+                    throw NSError(domain: "MediaEngine", code: 5, userInfo: [
+                        NSLocalizedDescriptionKey: "Video export to \(outputUri) failed: \(pass2.error?.localizedDescription ?? "Unknown error")",
+                    ])
+                }
+                return outputUri
+            }
+
+            if hasOverlays {
+                videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
+                    postProcessingAsVideoLayer: videoLayer,
+                    in: parentLayer
+                )
+            }
+
             guard let exportSession = AVAssetExportSession(asset: composition, presetName: presetName) else {
                 throw NSError(domain: "MediaEngine", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to create video export session"])
             }
@@ -1086,7 +1445,6 @@ public class MediaEngineModule: Module {
                 exportSession.videoComposition = videoComposition
             }
 
-            // Apply audio mix if we have per-track volume params
             if !audioMixParams.isEmpty {
                 let audioMix = AVMutableAudioMix()
                 audioMix.inputParameters = audioMixParams
@@ -1095,38 +1453,22 @@ public class MediaEngineModule: Module {
 
             await exportSession.export()
 
+            if hasOverlays {
+                let cleanup = CALayerCleanupTarget(parent: parentLayer)
+                await MainActor.run { cleanup.removeAllSublayers() }
+            }
+
             if exportSession.status == .completed {
                 return outputUri
-            } else {
-                throw NSError(domain: "MediaEngine", code: 5, userInfo: [
-                    NSLocalizedDescriptionKey: "Video export to \(outputUri) failed: \(exportSession.error?.localizedDescription ?? "Unknown error")"
-                ])
             }
-        }
-
-        // MARK: - Preview View
-        View(MediaEnginePreviewView.self) {
-            Events("onLoad", "onTimeUpdate", "onPlaybackEnded", "onError")
-
-            Prop("config") { (view: MediaEnginePreviewView, config: [String: Any]) in
-                view.updateConfig(config)
-            }
-            Prop("isPlaying") { (view: MediaEnginePreviewView, playing: Bool) in
-                view.setPlaying(playing)
-            }
-            Prop("muted") { (view: MediaEnginePreviewView, muted: Bool) in
-                view.setMuted(muted)
-            }
-            // Controlled seek — JS sets this to scrub the timeline when paused
-            Prop("currentTime") { (view: MediaEnginePreviewView, seconds: Double) in
-                view.setCurrentTime(seconds)
-            }
-        }
+            throw NSError(domain: "MediaEngine", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "Video export to \(outputUri) failed: \(exportSession.error?.localizedDescription ?? "Unknown error")",
+            ])
     }
 
     /// Add a Core Animation visibility window so a layer is visible only during [startTime, startTime+duration].
     /// maxOpacity controls peak opacity (for clips with opacity < 1).
-    private func addTimingAnimation(to layer: CALayer, startTime: Double, duration: Double, maxOpacity: Float = 1.0) {
+    private static func addTimingAnimation(to layer: CALayer, startTime: Double, duration: Double, maxOpacity: Float = 1.0) {
         let show = CABasicAnimation(keyPath: "opacity")
         show.fromValue = 0; show.toValue = maxOpacity
         show.beginTime = AVCoreAnimationBeginTimeAtZero + startTime
@@ -1149,6 +1491,29 @@ public class MediaEngineModule: Module {
         animGroup.isRemovedOnCompletion = false
 
         layer.add(animGroup, forKey: "visibility")
+    }
+}
+
+public class MediaEnginePreviewModule: Module {
+    public func definition() -> ModuleDefinition {
+        Name("MediaEnginePreview")
+
+        View(MediaEnginePreviewView.self) {
+            Events("onLoad", "onTimeUpdate", "onPlaybackEnded", "onError")
+
+            Prop("config") { (view: MediaEnginePreviewView, config: [String: Any]) in
+                view.updateConfig(config)
+            }
+            Prop("isPlaying") { (view: MediaEnginePreviewView, playing: Bool) in
+                view.setPlaying(playing)
+            }
+            Prop("muted") { (view: MediaEnginePreviewView, muted: Bool) in
+                view.setMuted(muted)
+            }
+            Prop("currentTime") { (view: MediaEnginePreviewView, seconds: Double) in
+                view.setCurrentTime(seconds)
+            }
+        }
     }
 }
 

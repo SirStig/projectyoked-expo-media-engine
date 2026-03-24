@@ -756,9 +756,3 @@ export const integrationTests = [
   ...RESIZE_TESTS,
   ...TRANSITION_TESTS,
 ];
-
-</think>
-Fixing suite composition: removing the erroneous slice and merging tests in the correct order.
-
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-StrReplace

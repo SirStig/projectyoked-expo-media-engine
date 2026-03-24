@@ -8,8 +8,12 @@ const DEFAULT_MIN_BYTES = 512;
  * @returns {Promise<void>}
  */
 export async function assertOutputFile(uri, minBytes = DEFAULT_MIN_BYTES) {
-  const path = uri.startsWith('file://') ? uri.slice(7) : uri;
-  const info = await FileSystem.getInfoAsync(path);
+  const fileUri = uri.startsWith('file://')
+    ? uri
+    : uri.startsWith('/')
+      ? `file://${uri}`
+      : `file:///${uri}`;
+  const info = await FileSystem.getInfoAsync(fileUri);
   if (!info.exists) {
     throw new Error(`Expected output file missing: ${uri}`);
   }

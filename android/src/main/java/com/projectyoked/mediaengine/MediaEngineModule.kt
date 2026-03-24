@@ -91,25 +91,6 @@ class MediaEngineModule : Module() {
         override fun definition() = ModuleDefinition {
                 Name("MediaEngine")
 
-                // MARK: - Preview View
-                View(MediaEnginePreviewView::class) {
-                        Events("onLoad", "onTimeUpdate", "onPlaybackEnded", "onError")
-
-                        Prop("config") { view: MediaEnginePreviewView, config: Map<String, Any?> ->
-                                view.updateConfig(config)
-                        }
-                        Prop("isPlaying") { view: MediaEnginePreviewView, playing: Boolean ->
-                                view.setPlaying(playing)
-                        }
-                        Prop("muted") { view: MediaEnginePreviewView, muted: Boolean ->
-                                view.setMuted(muted)
-                        }
-                        // Controlled seek — JS sets this to scrub the timeline when paused
-                        Prop("currentTime") { view: MediaEnginePreviewView, seconds: Double ->
-                                view.setCurrentTime(seconds)
-                        }
-                }
-
                 // MARK: - Audio Extraction
                 AsyncFunction("extractAudio") { videoUri: String, outputUri: String ->
                         val inputPath = if (videoUri.startsWith("file://")) videoUri.substring(7) else videoUri
@@ -375,8 +356,9 @@ class MediaEngineModule : Module() {
                                 composer.start()
 
                                 return@AsyncFunction outputPath
-                        } catch (e: Exception) {
-                                throw Exception("Video composition failed: ${e.message}")
+                        } catch (e: Throwable) {
+                                val msg = e.message?.takeIf { it.isNotEmpty() } ?: e.toString()
+                                throw Exception("Video composition failed: $msg", e)
                         }
                 }
 
@@ -535,8 +517,9 @@ class MediaEngineModule : Module() {
                                 composer.start()
 
                                 return@AsyncFunction config.outputUri
-                        } catch (e: Exception) {
-                                throw Exception("Composition failed: ${e.message}")
+                        } catch (e: Throwable) {
+                                val msg = e.message?.takeIf { it.isNotEmpty() } ?: e.toString()
+                                throw Exception("Composition failed: $msg", e)
                         }
                 }
 
@@ -544,7 +527,7 @@ class MediaEngineModule : Module() {
                 AsyncFunction("stitchVideos") { videoPaths: List<String>, outputUri: String ->
                         try {
                                 return@AsyncFunction VideoStitcher.stitch(videoPaths, outputUri)
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                                 android.util.Log.w(
                                         "MediaEngine",
                                         "Fast stitching failed, falling back to transcoding",

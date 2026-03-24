@@ -26,7 +26,7 @@ npm install @projectyoked/expo-media-engine
 npx expo prebuild
 ```
 
-The pre-release line (e.g. 1.0.0-alpha-3) is npm `latest`; no `@alpha` tag is required. Legacy stable 0.1.x: `npm install @projectyoked/expo-media-engine@0.1.3`.
+The pre-release line (e.g. 1.0.0-alpha-4) is npm `latest`; no `@alpha` tag is required. Legacy stable 0.1.x: `npm install @projectyoked/expo-media-engine@0.1.3`.
 
 Requirements: Expo SDK 49+, expo-modules-core 1.0.0+, iOS 13.4+, Android API 21+, React Native 0.64+. Requires a development build — Expo Go is not supported.
 

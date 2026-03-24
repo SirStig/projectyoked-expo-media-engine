@@ -1,9 +1,14 @@
 {
     "name": "@projectyoked/expo-media-engine",
-    "version": "1.0.0-alpha-3",
+    "version": "1.0.0-alpha-4",
     "description": "Expo module for video composition with text/emoji overlays, audio extraction, and waveform generation. Built with Expo Modules API.",
     "main": "src/index.js",
     "types": "src/index.d.ts",
+    "exports": {
+        ".": "./src/index.js",
+        "./metro-preset": "./metro-preset.js",
+        "./package.json": "./package.json"
+    },
     "license": "MIT",
     "author": "ProjectYoked",
     "homepage": "https://sirstig.github.io/projectyoked-expo-media-engine/",
@@ -66,6 +71,7 @@
         "src",
         "ios",
         "android",
+        "metro-preset.js",
         "expo-module.config.json",
         "README.md",
         "LICENSE",

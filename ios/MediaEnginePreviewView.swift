@@ -16,7 +16,7 @@ import UIKit
  *     composition here; the `useCompositionOverlays` JS hook supplies those so
  *     Skia / RN gesture layers can handle interactive positioning.
  *
- * Props (matched in MediaEngineModule.swift View definition):
+ * Props (matched in `MediaEnginePreviewModule` in MediaEngineModule.swift):
  *   config       — CompositionConfig dict (same shape as composeCompositeVideo)
  *   isPlaying    — Bool: play / pause
  *   muted        — Bool
@@ -167,7 +167,6 @@ public class MediaEnginePreviewView: ExpoView {
                 let speed      = clip["speed"]     as? Double ?? 1.0
                 let opacity    = Float(clip["opacity"] as? Double ?? 1.0)
                 let filterType = clip["filter"]    as? String ?? "none"
-                let filterIntensity = Float(clip["filterIntensity"] as? Double ?? 1.0)
 
                 guard let assetVideoTrack = asset.tracks(withMediaType: .video).first else { continue }
 

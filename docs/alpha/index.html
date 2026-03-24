@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="../favicon.svg" type="image/svg+xml" sizes="any">
-  <title>1.0.0-alpha-3 — Expo Media Engine</title>
-  <meta name="description" content="Full API reference for @projectyoked/expo-media-engine 1.0.0-alpha-3: composeCompositeVideo, MediaEnginePreview, useCompositionOverlays, filters, transitions, audio mixing, and more.">
+  <title>1.0.0-alpha-4 — Expo Media Engine</title>
+  <meta name="description" content="Full API reference for @projectyoked/expo-media-engine 1.0.0-alpha-4: composeCompositeVideo, MediaEnginePreview, useCompositionOverlays, filters, transitions, audio mixing, and more.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://sirstig.github.io/projectyoked-expo-media-engine/alpha/">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="https://sirstig.github.io/projectyoked-expo-media-engine/sitemap.xml">
-  <meta property="og:title" content="1.0.0-alpha-3 — Expo Media Engine">
+  <meta property="og:title" content="1.0.0-alpha-4 — Expo Media Engine">
   <meta property="og:description" content="Full API: composeCompositeVideo, MediaEnginePreview, useCompositionOverlays, filters, transitions, audio mixing, and more.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sirstig.github.io/projectyoked-expo-media-engine/alpha/">
@@ -19,7 +19,7 @@
   <meta property="og:image:height" content="768">
   <meta property="og:image:alt" content="Expo Media Engine pre-release documentation">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="1.0.0-alpha-3 — Expo Media Engine">
+  <meta name="twitter:title" content="1.0.0-alpha-4 — Expo Media Engine">
   <meta name="twitter:description" content="composeCompositeVideo, MediaEnginePreview, filters, transitions, audio mixing — full API reference.">
   <meta name="twitter:image" content="https://sirstig.github.io/projectyoked-expo-media-engine/og-image.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -57,6 +57,7 @@
         <span class="sidebar-label">Getting started</span>
         <a class="sidebar-link" href="#install">Installation</a>
         <a class="sidebar-link" href="#requirements">Requirements</a>
+        <a class="sidebar-link" href="#platform-notes">Platform notes</a>
         <a class="sidebar-link" href="#quick-start">Quick start</a>
       </div>
 
@@ -116,14 +117,15 @@
       <div class="content-inner">
 
         <div class="banner">
-          <strong>Pre-release — 1.0.0-alpha-3.</strong>&nbsp;
+          <strong>Pre-release — 1.0.0-alpha-4.</strong>&nbsp;
           APIs may change before <code>1.0.0</code>. Requires a
           <a href="https://docs.expo.dev/develop/development-builds/introduction/" target="_blank" rel="noopener">development build</a> — Expo Go is not supported.
         </div>
 
         <div class="doc-page-intro" style="margin-bottom:2.5rem">
-          <h1 style="margin-bottom:0.35rem">Expo Media Engine <code style="font-size:0.5em;vertical-align:middle;color:var(--muted)">1.0.0-alpha-3</code></h1>
-          <p style="margin:0">Hardware-accelerated video composition and editing for Expo. Built on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android). No proprietary SDKs. No per-minute billing.</p>
+          <h1 style="margin-bottom:0.35rem">Expo Media Engine <code style="font-size:0.5em;vertical-align:middle;color:var(--muted)">1.0.0-alpha-4</code></h1>
+          <p style="margin:0 0 0.75rem">Hardware-accelerated video composition and editing for Expo — one config for preview and export.</p>
+          <p style="margin:0;color:var(--muted)">iOS uses AVFoundation; Android uses MediaCodec and OpenGL ES 2.0. Open source (MIT). No proprietary SDKs or per-minute APIs.</p>
         </div>
 
         <div id="docSectionPanels">
@@ -160,6 +162,31 @@ npx expo prebuild</code></pre>
               </tbody>
             </table>
           </div>
+        </section>
+
+        <!-- ============ PLATFORM NOTES ============ -->
+        <section class="doc-section" id="platform-notes" data-section>
+          <div class="section-heading">
+            <div class="section-icon">📱</div>
+            <h2>Platform notes</h2>
+          </div>
+          <p>Things that are easy to trip over once you leave the happy path.</p>
+
+          <h3>iOS export behavior</h3>
+          <div class="callout callout-info">
+            <p><strong>One heavy job at a time.</strong> <code>composeCompositeVideo</code>, <code>exportComposition</code>, <code>stitchVideos</code>, and <code>compressVideo</code> share a queue. Don’t start a second export until the first promise settles.</p>
+          </div>
+          <div class="callout callout-info" style="margin-top:0.75rem">
+            <p><strong>Overlays = two passes.</strong> If your composition includes text or image tracks, iOS encodes the base video first (video, audio, filters), then runs a second export to burn in Core Animation overlays. That avoids a Simulator crash that showed up when both the CIFilter compositor and the Core Animation video tool ran in a single session.</p>
+          </div>
+          <p>Trims and transitions: timeline <code>duration</code> is what you want on the final edit; if your <code>clipStart</code>/<code>clipEnd</code> window is longer or shorter, the engine time-scales it to fit. Transition clips need a real overlap on the timeline — see <a href="#transitions">Transitions</a>.</p>
+
+          <h3>Simulator vs device</h3>
+          <p>The Simulator is great for UI work. For long exports or torture-testing the integration suite, a physical device tends to be more predictable — especially around video memory.</p>
+
+          <h3>Metro and monorepos</h3>
+          <p>If you install this package with <code>file:</code> or from a workspace, watch out for <strong>two copies</strong> of <code>react-native</code>. The preview view is registered under its own native module name; a split dependency tree can produce errors like <code>View config getter callback</code> returning nothing.</p>
+          <p>Use <code>withMediaEngineMonorepoResolver</code> from the package’s <code>metro-preset.js</code> so your app and the library resolve the same React Native. The repo’s <code>example/metro.config.js</code> is the reference.</p>
         </section>
 
         <!-- ============ QUICK START ============ -->
@@ -213,7 +240,10 @@ const outputUri = await MediaEngine.composeCompositeVideo({
             <div class="section-icon">🎬</div>
             <h2>composeCompositeVideo</h2>
           </div>
-          <p>The primary export function. Renders a <code>CompositionConfig</code> to a video file on disk. Returns the <code>outputUri</code> on success.</p>
+          <p>The primary export function. Renders a <code>CompositionConfig</code> to a video file on disk and resolves with <code>outputUri</code> when done.</p>
+          <div class="callout callout-info">
+            <p><strong>iOS specifics</strong> are summarized under <a href="#platform-notes">Platform notes</a> (export queue, two-pass overlays, trims, transitions). Android runs the OpenGL composer in one go unless the encoder falls back.</p>
+          </div>
           <div class="fn-sig"><span class="fn-name">composeCompositeVideo</span>(config: CompositionConfig)<span class="ret">→ Promise&lt;string&gt;</span></div>
           <p>The engine composites all tracks in order (bottom-to-top) and writes a single H.264 MP4. On both platforms the engine detects when re-encoding can be skipped entirely — for a single-clip composition with no transforms, filters, or overlays, the source bytes are passed through directly (zero quality loss, much faster).</p>
           <h3>Choosing quality vs bitrate</h3>
@@ -298,8 +328,9 @@ const outputUri = await MediaEngine.composeCompositeVideo({
           <p>Position (<code>x</code>, <code>y</code>) uses a normalized 0–1 space relative to the output canvas. <code>(0, 0)</code> is the top-left corner, <code>(0.5, 0.5)</code> is the center, <code>(1, 1)</code> is the bottom-right. The value represents the <em>center point</em> of the clip.</p>
 
           <h3>Source trimming</h3>
-          <p>Use <code>clipStart</code> and <code>clipEnd</code> to use only a portion of a source file. Both are in seconds relative to the source file's own timeline — independent of where the clip sits on the composition timeline.</p>
-<pre><code>// Use seconds 5–15 of a 60-second source
+          <p>Use <code>clipStart</code> and <code>clipEnd</code> to read from a slice of the source file. Values are seconds on the <em>source</em> timeline, not the composition timeline.</p>
+          <p><code>duration</code> is how long that clip should last <em>on your edit</em>. If the trimmed source segment doesn’t match (for example you marked 12s of source but set <code>duration: 10</code>), the engine adjusts playback speed so the clip still fills those 10 seconds — same idea as an explicit <code>speed</code> field.</p>
+<pre><code>// Use seconds 5–15 of a 60-second source; plays as 10s on the timeline
 { uri: 'file:///long-workout.mp4', startTime: 0, duration: 10, clipStart: 5, clipEnd: 15 }</code></pre>
 
           <h3>Speed</h3>
@@ -397,7 +428,7 @@ clips: [
   },
 ]</code></pre>
           <div class="callout callout-warn">
-            <p><strong>Overlap is required.</strong> If the clips don't overlap by at least <code>transitionDuration</code> seconds the transition is silently skipped and the clips cut hard.</p>
+            <p><strong>Overlap is required.</strong> The incoming clip’s <code>startTime</code> should fall <em>before</em> the outgoing clip ends, by at least <code>transitionDuration</code>. If the gap is too small, you’ll get a hard cut or odd blends — design the overlap first, then tune <code>transitionDuration</code>.</p>
           </div>
           <div class="table-wrap">
             <table>
@@ -597,6 +628,9 @@ export function CompositionEditor({ config }) {
           </div>
           <p>A native Expo view that renders video and audio at ~30 fps using the export-accurate pipeline. Import as a named export — not the default.</p>
 <pre><code>import { MediaEnginePreview } from '@projectyoked/expo-media-engine';</code></pre>
+          <div class="callout callout-tip" style="margin-top:1rem">
+            <p><strong>Blank preview in a monorepo?</strong> See <a href="#platform-notes">Platform notes</a> — Metro must resolve one shared <code>react-native</code> for the app and this package.</p>
+          </div>
 
           <h3>Play / pause / scrub example</h3>
 <pre><code>import { useState, useRef } from 'react';

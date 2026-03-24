@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.author         = package['author']
   s.homepage       = package['homepage'] || 'https://github.com/projectyoked/react-native-media-engine'
   s.platforms      = { :ios => '13.4' }
-  s.swift_version  = '5.4'
+  s.swift_version  = '5.10'
   s.source         = { git: '' }
   s.static_framework = true
 
