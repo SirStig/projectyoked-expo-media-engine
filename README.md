@@ -28,8 +28,14 @@ A hardware-accelerated video composition and editing engine for Expo. Built on A
 ## Installation
 
 ```bash
-npm install @projectyoked/expo-media-engine@alpha
+npm install @projectyoked/expo-media-engine
 npx expo prebuild
+```
+
+The current pre-release line (for example `1.0.0-alpha-3`) is what npm installs by default. To stay on the legacy **0.1.x** stable line, pin the version:
+
+```bash
+npm install @projectyoked/expo-media-engine@0.1.3
 ```
 
 This package requires a native build. Expo Go is not supported — use a [development build](https://docs.expo.dev/develop/development-builds/introduction/).

@@ -118,8 +118,9 @@
             <div class="section-icon">📦</div>
             <h2>Installation</h2>
           </div>
-<pre><code>npm install @projectyoked/expo-media-engine@alpha
+<pre><code>npm install @projectyoked/expo-media-engine
 npx expo prebuild</code></pre>
+          <p style="margin-top:0.75rem">This line is published as npm <code>latest</code>, so you do not need the <code>@alpha</code> dist-tag. The legacy 0.1.x API is <code>npm install @projectyoked/expo-media-engine@0.1.3</code> — see <a href="../stable/">stable docs</a>.</p>
           <div class="callout callout-warn" style="margin-top:1rem">
             <p><strong>Expo Go is not supported.</strong> This module includes native Swift and Kotlin code that must be compiled into your app binary. You need a <a href="https://docs.expo.dev/develop/development-builds/introduction/" target="_blank" rel="noopener">development build</a> — run <code>eas build --profile development</code> or <code>npx expo run:ios</code> / <code>npx expo run:android</code> locally.</p>
           </div>

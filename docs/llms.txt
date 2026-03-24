@@ -22,17 +22,19 @@ Built on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android).
 ## Install
 
 ```
-npm install @projectyoked/expo-media-engine@alpha
+npm install @projectyoked/expo-media-engine
 npx expo prebuild
 ```
+
+The pre-release line (e.g. 1.0.0-alpha-3) is npm `latest`; no `@alpha` tag is required. Legacy stable 0.1.x: `npm install @projectyoked/expo-media-engine@0.1.3`.
 
 Requirements: Expo SDK 49+, expo-modules-core 1.0.0+, iOS 13.4+, Android API 21+, React Native 0.64+. Requires a development build — Expo Go is not supported.
 
 ## npm
 
 - Package: @projectyoked/expo-media-engine
-- Alpha tag: npm install @projectyoked/expo-media-engine@alpha
-- Stable tag: npm install @projectyoked/expo-media-engine
+- Default (latest): npm install @projectyoked/expo-media-engine — pre-release line
+- Legacy stable 0.1.x: npm install @projectyoked/expo-media-engine@0.1.3
 - npm page: https://www.npmjs.com/package/@projectyoked/expo-media-engine
 
 ## GitHub
@@ -382,12 +384,12 @@ Key design decisions:
 
 ---
 
-## Stable API (0.1.x, npm latest)
+## Stable API (0.1.x)
 
-The stable line provides basic single-video export:
+Install with `npm install @projectyoked/expo-media-engine@0.1.3`. The stable line provides basic single-video export:
 - isAvailable() — checks native module linkage
 - extractAudio(videoUri, outputUri) — pulls audio to .m4a
 - getWaveform(audioUri, samples?) — normalized RMS amplitude array
 - exportComposition(config) — single-video export with text/emoji overlays and background music
 
-For the full feature set, use the alpha tag.
+For the full feature set, use the default npm install (pre-release on `latest`).
