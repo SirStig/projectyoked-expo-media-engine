@@ -3,9 +3,9 @@
 - **`docs/`** — Static HTML for GitHub Pages: home page, version switcher, [stable](docs/stable/) (`0.1.x`), [alpha](docs/alpha/) (`1.0.0-alpha.x`), and [changelog](docs/changelog.html) (renders `CHANGELOG.md`).
 - **`README.md`** — Short entry point; defers detail to the hosted docs.
 
-The **Deploy documentation** workflow copies the repository root `CHANGELOG.md` to `docs/changelog.md` before upload. That file is listed in `.gitignore` so it is not committed; the changelog page loads it in the browser via `fetch`.
+The **Deploy documentation** workflow copies `CHANGELOG.md` to `docs/changelog.md` and `src/index.d.ts` to `docs/assets/index.d.ts` before upload. `docs/changelog.md` stays in `.gitignore` (not committed). The changelog page fetches `changelog.md` next to `changelog.html`, then falls back to the raw `CHANGELOG.md` on GitHub if that file is missing (e.g. local preview without a copy).
 
-**Local preview:** from the repo root, run `cp CHANGELOG.md docs/changelog.md`, then serve `docs/` with any static server (otherwise the changelog page shows a short error with a link to GitHub).
+**Local preview:** optional `cp CHANGELOG.md docs/changelog.md` for fully offline changelog rendering; otherwise the hosted page still loads from GitHub. Keep `docs/assets/index.d.ts` in sync with `src/index.d.ts` when editing types (the workflow overwrites it on deploy).
 
 ## Publishing the site (maintainers)
 

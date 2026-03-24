@@ -76,11 +76,12 @@
           This is the legacy API on npm tag <code>latest</code>. For the full feature set — multi-track composition, real-time preview, filters, transitions, and more — see the <a href="../alpha/">pre-release documentation</a>.
         </div>
 
-        <div style="margin-bottom:2.5rem">
+        <div class="doc-page-intro" style="margin-bottom:2.5rem">
           <h1 style="margin-bottom:0.35rem">Stable documentation <code style="font-size:0.5em;vertical-align:middle;color:var(--muted)">0.1.x</code></h1>
           <p style="margin:0">The stable line provides basic single-video export, audio extraction, and waveform generation.</p>
         </div>
 
+        <div id="docSectionPanels">
         <!-- INSTALL -->
         <section class="doc-section" id="install" data-section>
           <div class="section-heading">
@@ -166,8 +167,13 @@ MediaEngine.isAvailable(); // boolean</code></pre>
             <div class="section-icon">🟦</div>
             <h2>TypeScript</h2>
           </div>
-          <p>Types ship with the package. See <code>ExportCompositionConfig</code> in <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts" target="_blank" rel="noopener"><code>src/index.d.ts</code></a>.</p>
+          <p>The stable line uses <code>ExportCompositionConfig</code> and related types. The full package definition file (including pre-release APIs) is below; it matches <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts" target="_blank" rel="noopener"><code>src/index.d.ts</code></a>.</p>
+          <div class="dts-mount" data-dts-asset="../assets/index.d.ts" aria-live="polite">
+            <p class="dts-placeholder" style="color:var(--muted);font-size:0.9rem;margin:0">Loading types…</p>
+          </div>
         </section>
+
+        </div>
 
         <footer class="doc-footer">
           <a href="../">Home</a>

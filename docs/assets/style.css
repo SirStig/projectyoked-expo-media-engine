@@ -316,6 +316,19 @@ li strong { color: var(--text); }
 .doc-section p { margin: 0.6rem 0; }
 .doc-section > ul, .doc-section > ol { margin: 0.65rem 0; }
 
+#docSectionPanels .doc-section { display: none; }
+#docSectionPanels .doc-section.is-active { display: block; }
+
+.dts-mount { margin-top: 1rem; }
+.dts-mount pre {
+  max-height: min(70vh, 44rem);
+  overflow: auto;
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.dts-error { color: var(--warn-text); margin: 0; font-size: 0.9rem; }
+
 /* ===== TABLES ===== */
 .table-wrap {
   overflow-x: auto;

@@ -25,6 +25,9 @@ jobs:
       - name: Copy CHANGELOG into docs
         run: cp CHANGELOG.md docs/changelog.md
 
+      - name: Sync TypeScript defs for docs
+        run: cp src/index.d.ts docs/assets/index.d.ts
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 

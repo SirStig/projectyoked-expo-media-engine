@@ -106,11 +106,12 @@
           <a href="https://docs.expo.dev/develop/development-builds/introduction/" target="_blank" rel="noopener">development build</a> — Expo Go is not supported.
         </div>
 
-        <div style="margin-bottom:2.5rem">
+        <div class="doc-page-intro" style="margin-bottom:2.5rem">
           <h1 style="margin-bottom:0.35rem">Expo Media Engine <code style="font-size:0.5em;vertical-align:middle;color:var(--muted)">1.0.0-alpha-3</code></h1>
           <p style="margin:0">Hardware-accelerated video composition and editing for Expo. Built on AVFoundation (iOS) and MediaCodec + OpenGL ES 2.0 (Android). No proprietary SDKs. No per-minute billing.</p>
         </div>
 
+        <div id="docSectionPanels">
         <!-- ============ INSTALL ============ -->
         <section class="doc-section" id="install" data-section>
           <div class="section-heading">
@@ -569,25 +570,13 @@ const overlays = useCompositionOverlays(config, currentTime);
             <div class="section-icon">🟦</div>
             <h2>TypeScript types</h2>
           </div>
-          <p>All types ship with the package. The main types you'll use:</p>
-          <div class="tag-row">
-            <span class="tag tag-accent">CompositionConfig</span>
-            <span class="tag">CompositeTrack</span>
-            <span class="tag">CompositeClip</span>
-            <span class="tag">TextStyle</span>
-            <span class="tag">FilterType</span>
-            <span class="tag">TransitionType</span>
-            <span class="tag">VolumeEnvelope</span>
-            <span class="tag">VolumeKeyframe</span>
-            <span class="tag">ClipAnimations</span>
-            <span class="tag">KeyframeValue</span>
-            <span class="tag tag-accent">MediaEnginePreviewProps</span>
-            <span class="tag">MediaEnginePreviewRef</span>
-            <span class="tag tag-accent">ActiveOverlay</span>
-            <span class="tag">CompressVideoConfig</span>
+          <p>All types ship with the npm package as <code>src/index.d.ts</code>. The block below is the full definition file (same as on <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts" target="_blank" rel="noopener">GitHub</a>).</p>
+          <div class="dts-mount" data-dts-asset="../assets/index.d.ts" aria-live="polite">
+            <p class="dts-placeholder" style="color:var(--muted);font-size:0.9rem;margin:0">Loading types…</p>
           </div>
-          <p>Full source: <a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/src/index.d.ts" target="_blank" rel="noopener"><code>src/index.d.ts</code></a></p>
         </section>
+
+        </div>
 
         <footer class="doc-footer">
           <a href="../">Home</a>
