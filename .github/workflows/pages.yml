@@ -22,8 +22,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Copy CHANGELOG into site
-        run: cp CHANGELOG.md site/changelog.md
+      - name: Copy CHANGELOG into docs
+        run: cp CHANGELOG.md docs/changelog.md
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -32,7 +32,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Pure static HTML — no Jekyll processing needed (.nojekyll is present)
-          path: site
+          path: docs
 
   deploy:
     needs: build

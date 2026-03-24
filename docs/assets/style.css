@@ -374,8 +374,7 @@ tbody tr:hover td { background: var(--glass); }
 
 /* ===== BANNER ===== */
 .banner {
-  display: flex;
-  gap: 0.7rem;
+  display: block;
   padding: 0.85rem 1.1rem;
   border-radius: var(--r);
   border: 1px solid var(--warn-border);
@@ -387,6 +386,10 @@ tbody tr:hover td { background: var(--glass); }
 }
 .banner a { color: var(--warn-text); text-decoration: underline; }
 .banner strong { color: inherit; }
+.banner code {
+  white-space: nowrap;
+  vertical-align: baseline;
+}
 
 /* ===== TAGS ===== */
 .tag-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.65rem 0 1rem; }

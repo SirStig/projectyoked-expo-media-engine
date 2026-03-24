@@ -110,6 +110,64 @@ class MediaEngineModule : Module() {
                         }
                 }
 
+                // MARK: - Audio Extraction
+                AsyncFunction("extractAudio") { videoUri: String, outputUri: String ->
+                        val inputPath = if (videoUri.startsWith("file://")) videoUri.substring(7) else videoUri
+                        val outputPath = if (outputUri.startsWith("file://")) outputUri.substring(7) else outputUri
+
+                        // Remove stale output file
+                        val outFile = java.io.File(outputPath)
+                        if (outFile.exists()) outFile.delete()
+
+                        val extractor = android.media.MediaExtractor()
+                        try {
+                                extractor.setDataSource(inputPath)
+
+                                // Find first audio track
+                                var audioTrackIndex = -1
+                                for (i in 0 until extractor.trackCount) {
+                                        val mime = extractor.getTrackFormat(i)
+                                                .getString(android.media.MediaFormat.KEY_MIME) ?: continue
+                                        if (mime.startsWith("audio/")) { audioTrackIndex = i; break }
+                                }
+                                if (audioTrackIndex < 0) throw Exception("No audio track found in: $videoUri")
+
+                                extractor.selectTrack(audioTrackIndex)
+                                val audioFormat = extractor.getTrackFormat(audioTrackIndex)
+
+                                val muxer = android.media.MediaMuxer(
+                                        outputPath,
+                                        android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
+                                )
+                                try {
+                                        val muxTrack = muxer.addTrack(audioFormat)
+                                        muxer.start()
+
+                                        val buffer = java.nio.ByteBuffer.allocate(512 * 1024)
+                                        val info = android.media.MediaCodec.BufferInfo()
+
+                                        while (true) {
+                                                val size = extractor.readSampleData(buffer, 0)
+                                                if (size < 0) break
+                                                info.offset = 0
+                                                info.size = size
+                                                info.presentationTimeUs = extractor.sampleTime
+                                                info.flags = extractor.sampleFlags
+                                                muxer.writeSampleData(muxTrack, buffer, info)
+                                                extractor.advance()
+                                        }
+
+                                        muxer.stop()
+                                } finally {
+                                        muxer.release()
+                                }
+                        } finally {
+                                extractor.release()
+                        }
+
+                        return@AsyncFunction outputUri
+                }
+
                 // MARK: - Waveform Generation
                 AsyncFunction("getWaveform") { audioUri: String, samples: Int ->
                         return@AsyncFunction WaveformGenerator.generate(audioUri, samples)

@@ -19,7 +19,7 @@
     })
     .catch(function () {
       status.innerHTML =
-        'Changelog file could not be loaded. If you are running the site locally, copy the repo root <code>CHANGELOG.md</code> to <code>site/changelog.md</code>. ' +
+        'Changelog file could not be loaded. If you are running the site locally, copy the repo root <code>CHANGELOG.md</code> to <code>docs/changelog.md</code>. ' +
         'You can also view the file on ' +
         '<a href="https://github.com/SirStig/projectyoked-expo-media-engine/blob/main/CHANGELOG.md">GitHub</a>.';
       status.classList.add('banner');
