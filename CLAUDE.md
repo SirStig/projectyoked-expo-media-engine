@@ -17,6 +17,19 @@ npm run test:watch    # Watch mode
 
 # Single test file
 npx jest tests/module.test.js
+
+# Native integration (example app + Maestro)
+# 1. Install Maestro: https://docs.maestro.dev/getting-started/installing-maestro
+# 2. Boot a Simulator / Emulator, then from repo root:
+cd example && npx expo run:ios    # or expo run:android
+# 3. From repo root (app must stay installed):
+npm run test:integration:ios     # or test:integration:android
+
+# Optional: auto-run the catalog on launch (no Maestro tap)
+# MEDIA_ENGINE_AUTO_RUN=1 cd example && npx expo start
+# Then rebuild / open the dev client so the bundle picks up extra.mediaEngineAutoRunIntegration.
+
+# CI: workflow_dispatch job `Native integration` verifies Jest + fixture manifest URLs and SHA-256.
 ```
 
 There is no build step — this is a native module distributed as source.
@@ -62,9 +75,11 @@ JS config (`CompositionConfig`) → native Record types → composition engine:
 
 ### Testing
 
-Tests mock the native module and validate:
+**Unit / bridge (Jest)** — `tests/` mocks the native module and validates:
 - Module structure (all 6 functions exported)
 - Return types (all functions return Promises)
 - TypeScript interface compliance
 
 The TypeScript compiler validates types separately via `npm run typecheck`.
+
+**Integration** — `example/` hosts a dev-client app that downloads pinned fixtures (`example/integration/fixtures.manifest.json`), runs the catalog in `example/integration/mediaEngineSuite.js`, and can be driven with Maestro (`maestro/media-engine-suite.yaml`). Pure overlay math is covered in Jest via `src/overlayKeyframes.js` and `tests/useCompositionOverlays.test.js`.

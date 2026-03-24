@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "videoA",
+      "filename": "integration_video_a.mp4",
+      "url": "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+      "sha256": "57985f49ebfe4e44292117b325f6504bf089c1cdcde8653548736b11b2a27f3a"
+    },
+    {
+      "id": "videoB",
+      "filename": "integration_video_b.mp4",
+      "url": "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+      "sha256": "f846d9c7f5ed28f0ed47e9d9b4198a03075e6df967ac54078af85ea1bf0ddd87"
+    }
+  ]
+}

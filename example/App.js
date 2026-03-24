@@ -1,262 +1,240 @@
-import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, Button, FlatList, ActivityIndicator, Alert } from 'react-native';
-import { Asset } from 'expo-asset';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  Button,
+  FlatList,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  Platform,
+} from 'react-native';
+import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
-import MediaEngine from '@projectyoked/expo-media-engine';
+import MediaEngine, { MediaEnginePreview } from '@projectyoked/expo-media-engine';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
-// --- Test Assets ---
-const TEST_VIDEO_1 = require('./assets/test/Assisted_Squat.mov');
-const TEST_VIDEO_2 = require('./assets/test/Assisted_Lunge.mov');
-const TEST_IMAGE = require('./assets/icon.png');
+import { loadFixtures } from './integration/loadFixtures.js';
+import {
+  integrationTests,
+  filterTestsByPlatform,
+  prepareOutputDir,
+} from './integration/mediaEngineSuite.js';
+
+const CLIP_SEC = 2.5;
 
 const SimpleVideoPlayer = ({ uri, style }) => {
-  const player = useVideoPlayer(uri, player => {
+  const player = useVideoPlayer(uri, (player) => {
     player.loop = true;
     player.play();
   });
 
   return (
     <View style={style}>
-      <VideoView style={{ flex: 1 }} player={player} fullscreenOptions={{ allowed: true }} allowPictureInPicture />
+      <VideoView
+        style={{ flex: 1 }}
+        player={player}
+        fullscreenOptions={{ allowed: true }}
+        allowPictureInPicture
+      />
     </View>
   );
 };
 
 export default function App() {
+  const [fixtureStatus, setFixtureStatus] = useState('');
   const [ready, setReady] = useState(false);
+  const [fixtureError, setFixtureError] = useState(null);
+  const [assets, setAssets] = useState(null);
+  const [outputDir, setOutputDir] = useState(null);
+
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState([]);
-  const [assets, setAssets] = useState({ video1: null, video2: null, image: null });
+  const [suiteOutcome, setSuiteOutcome] = useState('idle');
+  const [previewLoaded, setPreviewLoaded] = useState(false);
 
-  // Load Assets on Mount
+  const autoRun =
+    Constants.expoConfig?.extra?.mediaEngineAutoRunIntegration === true;
+  const autoRunStarted = useRef(false);
+
+  const testsForPlatform = useMemo(
+    () => filterTestsByPlatform(integrationTests, Platform.OS),
+    []
+  );
+
+  const previewConfig = useMemo(() => {
+    if (!assets?.videoA || !outputDir) return null;
+    return {
+      outputUri: `${outputDir}preview_placeholder.mp4`,
+      width: 640,
+      height: 360,
+      frameRate: 30,
+      tracks: [
+        {
+          type: 'video',
+          clips: [{ uri: assets.videoA, startTime: 0, duration: CLIP_SEC }],
+        },
+      ],
+    };
+  }, [assets, outputDir]);
+
   useEffect(() => {
-    loadAssets();
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setFixtureStatus('Preparing fixtures…');
+        const loaded = await loadFixtures({
+          onProgress: (msg) => {
+            if (!cancelled) setFixtureStatus(msg);
+          },
+        });
+        if (cancelled) return;
+
+        const out = await prepareOutputDir();
+        if (cancelled) return;
+
+        setAssets(loaded);
+        setOutputDir(out);
+        setReady(true);
+        setFixtureStatus('');
+        setFixtureError(null);
+      } catch (e) {
+        if (!cancelled) {
+          console.error(e);
+          setFixtureError(e?.message ?? String(e));
+          setFixtureStatus('');
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const loadAssets = async () => {
-    try {
-
-      const setupFile = async (resource, name) => {
-        const asset = Asset.fromModule(resource);
-        await asset.downloadAsync();
-        if (!asset.localUri) throw new Error("Asset failed to download");
-
-        const dest = FileSystem.documentDirectory + name;
-        const info = await FileSystem.getInfoAsync(dest);
-        if (!info.exists) {
-          await FileSystem.copyAsync({ from: asset.localUri, to: dest });
-        } else {
-          // Re-copy to ensure fresh
-          await FileSystem.deleteAsync(dest);
-          await FileSystem.copyAsync({ from: asset.localUri, to: dest });
-        }
-
-        // Verify
-        const check = await FileSystem.getInfoAsync(dest);
-        console.log(`Asset ${name} prepared at ${check.uri} (Exists: ${check.exists}, Size: ${check.size})`);
-        return check.uri;
-      };
-
-      const v1Uri = await setupFile(TEST_VIDEO_1, 'video1.mov');
-      const v2Uri = await setupFile(TEST_VIDEO_2, 'video2.mov');
-      const imgUri = await setupFile(TEST_IMAGE, 'image.png');
-
-      setAssets({ video1: v1Uri, video2: v2Uri, image: imgUri });
-      setReady(true);
-    } catch (e) {
-      console.error(e);
-      Alert.alert("Asset Error", "Failed to load test assets: " + e.message);
+  const runSuite = useCallback(async () => {
+    if (!ready || !assets || !outputDir || running) return;
+    if (!MediaEngine.isAvailable()) {
+      Alert.alert('MediaEngine', 'Native module not available. Use a dev build.');
+      return;
     }
-  };
 
-  const TESTS = [
-    {
-      id: 'passthrough',
-      name: '1. Smart Passthrough (Fast)',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_pass.mp4').replace('.mp4', '_pass.mp4'),
-          width: 720, height: 1280, frameRate: 30, bitrate: 2000000,
-          enablePassthrough: true,
-          tracks: [{ type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0 }] }]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'transcode',
-      name: '2. Force Transcode (Base)',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_trans.mp4').replace('.mp4', '_trans.mp4'),
-          width: 720, height: 1280, frameRate: 30, bitrate: 1500000,
-          enablePassthrough: false,
-          tracks: [{ type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0 }] }]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'filter_sepia',
-      name: '3. Filter: Sepia',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_sepia.mp4').replace('.mp4', '_sepia.mp4'),
-          width: 720, height: 1280, frameRate: 30,
-          tracks: [{ type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0, filter: 'sepia' }] }]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'filter_gray',
-      name: '4. Filter: Grayscale',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_gray.mp4').replace('.mp4', '_gray.mp4'),
-          width: 720, height: 1280, frameRate: 30,
-          tracks: [{ type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0, filter: 'grayscale' }] }]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'resize_contain',
-      name: '5. Resize: Contain (Fit)',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_contain.mp4').replace('.mp4', '_contain.mp4'),
-          width: 720, height: 720, frameRate: 30,
-          tracks: [{ type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0, resizeMode: 'contain' }] }]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'resize_cover',
-      name: '6. Resize: Cover (Fill)',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_cover.mp4').replace('.mp4', '_cover.mp4'),
-          width: 720, height: 720, frameRate: 30,
-          tracks: [{ type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0, resizeMode: 'cover' }] }]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'transform_rotate',
-      name: '7. Transform: Rotate 90',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_rot90.mp4').replace('.mp4', '_rot90.mp4'),
-          width: 720, height: 1280, frameRate: 30,
-          tracks: [{ type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0, rotation: 90 }] }]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'transform_scale',
-      name: '8. Transform: Scale 0.5',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_scale.mp4').replace('.mp4', '_scale.mp4'),
-          width: 720, height: 1280, frameRate: 30,
-          tracks: [{ type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0, scale: 0.5 }] }]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'overlay_text',
-      name: '9. Overlay: Text',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_text.mp4').replace('.mp4', '_text.mp4'),
-          width: 720, height: 1280,
-          tracks: [
-            { type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0 }] },
-            { type: 'text', clips: [{ uri: 'text:HELLO|#FF0000|80', startTime: 0.5, duration: 2.0, x: 0.5, y: 0.5 }] }
-          ]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'overlay_image',
-      name: '10. Overlay: Image (PIP)',
-      run: async (assets) => {
-        const config = {
-          outputUri: assets.video1.replace('.mov', '_img.mp4').replace('.mp4', '_img.mp4'),
-          width: 720, height: 1280,
-          tracks: [
-            { type: 'video', clips: [{ uri: assets.video1, startTime: 0, duration: 3.0 }] },
-            { type: 'video', clips: [{ uri: assets.image, startTime: 0.5, duration: 2.0, x: 0.8, y: 0.2, scale: 0.3 }] }
-          ]
-        };
-        return await MediaEngine.composeCompositeVideo(config);
-      }
-    },
-    {
-      id: 'stitching',
-      name: '11. Stitching (V1 + V2)',
-      run: async (assets) => {
-        const output = assets.video1.replace('.mov', '_stitched.mp4').replace('.mp4', '_stitched.mp4');
-        const outputUri = await MediaEngine.stitchVideos([assets.video1, assets.video2], output);
-        return outputUri;
-      }
-    }
-  ];
-
-  const runSuite = async () => {
-    if (!ready || running) return;
     setRunning(true);
+    setSuiteOutcome('running');
+    setPreviewLoaded(false);
 
-    // Initialize results
-    const initialResults = TESTS.map(t => ({
+    const ctx = {
+      videoA: assets.videoA,
+      videoB: assets.videoB,
+      image: assets.image,
+      outputDir,
+      extractedM4a: null,
+    };
+
+    const initialResults = testsForPlatform.map((t) => ({
       id: t.id,
       name: t.name,
       status: 'pending',
       outputUri: null,
       error: null,
-      duration: 0
+      duration: 0,
+      skipped: false,
     }));
     setResults(initialResults);
 
-    // Run sequentially
-    for (let i = 0; i < TESTS.length; i++) {
-      const test = TESTS[i];
+    let hadHardFailure = false;
 
-      // Update status to running
-      setResults(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'running' } : r));
+    for (let i = 0; i < testsForPlatform.length; i++) {
+      const test = testsForPlatform[i];
+
+      setResults((prev) =>
+        prev.map((r, idx) => (idx === i ? { ...r, status: 'running' } : r))
+      );
 
       const start = Date.now();
       try {
-        const outputUri = await test.run(assets);
+        const outputUri = await test.run(MediaEngine, ctx);
         const duration = Date.now() - start;
-
-        // Success
-        setResults(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'success', outputUri, duration } : r));
+        setResults((prev) =>
+          prev.map((r, idx) =>
+            idx === i
+              ? {
+                  ...r,
+                  status: 'success',
+                  outputUri,
+                  duration,
+                  skipped: false,
+                }
+              : r
+          )
+        );
       } catch (e) {
         const duration = Date.now() - start;
         console.error(`Test ${test.name} failed`, e);
-        // Error
-        setResults(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'error', error: e.message, duration } : r));
+        if (test.optional) {
+          setResults((prev) =>
+            prev.map((r, idx) =>
+              idx === i
+                ? {
+                    ...r,
+                    status: 'skipped',
+                    error: e?.message ?? String(e),
+                    duration,
+                    skipped: true,
+                  }
+                : r
+            )
+          );
+        } else {
+          hadHardFailure = true;
+          setResults((prev) =>
+            prev.map((r, idx) =>
+              idx === i
+                ? {
+                    ...r,
+                    status: 'error',
+                    error: e?.message ?? String(e),
+                    duration,
+                  }
+                : r
+            )
+          );
+        }
       }
 
-      // Small delay for UI
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 300));
     }
+
     setRunning(false);
-    Alert.alert("Suite Complete", "All tests finished.");
-  };
+    setSuiteOutcome(hadHardFailure ? 'failed' : 'passed');
+    if (!autoRun) {
+      Alert.alert(
+        'Suite complete',
+        hadHardFailure ? 'One or more required tests failed.' : 'All required tests passed.'
+      );
+    }
+  }, [ready, assets, outputDir, running, testsForPlatform, autoRun]);
+
+  useEffect(() => {
+    if (ready && autoRun && !autoRunStarted.current) {
+      autoRunStarted.current = true;
+      runSuite();
+    }
+  }, [ready, autoRun, runSuite]);
 
   const renderItem = ({ item }) => (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={[styles.testName, item.status === 'success' && styles.green, item.status === 'error' && styles.red]}>
+        <Text
+          style={[
+            styles.testName,
+            item.status === 'success' && styles.green,
+            item.status === 'error' && styles.red,
+            item.status === 'skipped' && styles.amber,
+          ]}
+        >
           {item.name}
         </Text>
         {item.status === 'running' && <ActivityIndicator size="small" />}
@@ -268,51 +246,153 @@ export default function App() {
       {item.status === 'error' && (
         <Text style={styles.errorText}>❌ {item.error}</Text>
       )}
+      {item.status === 'skipped' && (
+        <Text style={styles.skipText}>skipped (optional): {item.error}</Text>
+      )}
 
       {item.status === 'success' && item.outputUri && (
         <View style={styles.videoContainer}>
           <SimpleVideoPlayer uri={item.outputUri} style={styles.video} />
-          <Text style={styles.path}>{item.outputUri}</Text>
+          <Text style={styles.path} numberOfLines={2}>
+            {item.outputUri}
+          </Text>
         </View>
       )}
     </View>
   );
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Media Engine Test Suite</Text>
+    <View style={styles.container} testID="integration-app-root">
+      <Text style={styles.title}>Media Engine Integration</Text>
 
       <View style={styles.controls}>
-        {!ready ? (
-          <Text style={{ textAlign: 'center' }}>Loading Assets...</Text>
+        {fixtureError ? (
+          <Text style={styles.errorText}>Fixtures: {fixtureError}</Text>
+        ) : !ready ? (
+          <View>
+            <ActivityIndicator />
+            <Text style={{ textAlign: 'center', marginTop: 8 }}>
+              {fixtureStatus || 'Loading…'}
+            </Text>
+          </View>
         ) : (
-          <Button title={running ? "Running Tests..." : "⚡ RUN ALL TESTS ⚡"} onPress={runSuite} disabled={running} color="#6200ea" />
+          <>
+            <Text style={styles.subtle}>
+              {MediaEngine.isAvailable() ? 'Native module loaded' : 'Native module missing'}
+            </Text>
+            <Button
+              title={running ? 'Running…' : 'RUN ALL TESTS'}
+              onPress={runSuite}
+              disabled={running}
+              color="#6200ea"
+              testID="run-all-integration-tests"
+            />
+          </>
         )}
       </View>
+
+      {ready && previewConfig && (
+        <ScrollView horizontal style={styles.previewRow}>
+          <View style={styles.previewBox}>
+            <Text style={styles.previewLabel}>MediaEnginePreview</Text>
+            <View style={styles.previewFrame}>
+              <MediaEnginePreview
+                config={previewConfig}
+                isPlaying={false}
+                muted
+                currentTime={0}
+                onLoad={() => setPreviewLoaded(true)}
+                onError={(ev) => {
+                  console.warn('Preview error', ev?.nativeEvent?.message);
+                }}
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
+            {previewLoaded ? (
+              <Text testID="integration-preview-loaded" style={styles.previewOk}>
+                preview onLoad OK
+              </Text>
+            ) : (
+              <Text style={styles.subtle}>waiting for onLoad…</Text>
+            )}
+          </View>
+        </ScrollView>
+      )}
+
+      {suiteOutcome === 'passed' && (
+        <View
+          testID="integration-suite-complete"
+          style={styles.sentinel}
+          collapsable={false}
+        />
+      )}
+      {suiteOutcome === 'failed' && (
+        <View
+          testID="integration-suite-failed"
+          style={styles.sentinel}
+          collapsable={false}
+        />
+      )}
 
       <FlatList
         data={results}
         renderItem={renderItem}
-        keyExtractor={item => item.id}
+        keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        ListEmptyComponent={
+          ready ? (
+            <Text style={styles.subtle}>Run the suite to see results.</Text>
+          ) : null
+        }
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 50, backgroundColor: '#f5f5f5' },
-  title: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
-  controls: { paddingHorizontal: 20, marginBottom: 10 },
-  list: { paddingBottom: 50 },
-  card: { backgroundColor: 'white', marginHorizontal: 15, marginBottom: 15, padding: 15, borderRadius: 10, elevation: 2 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  testName: { fontSize: 16, fontWeight: 'bold', flex: 1 },
+  container: { flex: 1, paddingTop: 48, backgroundColor: '#f5f5f5' },
+  title: { fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
+  controls: { paddingHorizontal: 20, marginBottom: 12 },
+  subtle: { color: '#666', textAlign: 'center', fontSize: 12, marginBottom: 8 },
+  previewRow: { maxHeight: 220, marginBottom: 8 },
+  previewBox: { width: 280, marginHorizontal: 12 },
+  previewLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
+  previewFrame: {
+    height: 160,
+    backgroundColor: '#111',
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  previewOk: { fontSize: 11, color: 'green', marginTop: 4 },
+  list: { paddingBottom: 48 },
+  card: {
+    backgroundColor: 'white',
+    marginHorizontal: 15,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 10,
+    elevation: 2,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  testName: { fontSize: 15, fontWeight: 'bold', flex: 1 },
   green: { color: 'green' },
   red: { color: 'red' },
-  duration: { color: '#666', fontSize: 12 },
-  errorText: { color: 'red', marginTop: 10, fontSize: 12 },
-  videoContainer: { marginTop: 10, height: 200, backgroundColor: '#000', borderRadius: 5, overflow: 'hidden' },
+  amber: { color: '#b8860b' },
+  duration: { color: '#666', fontSize: 11 },
+  errorText: { color: 'red', marginTop: 8, fontSize: 12 },
+  skipText: { color: '#b8860b', marginTop: 8, fontSize: 12 },
+  videoContainer: {
+    marginTop: 8,
+    height: 180,
+    backgroundColor: '#000',
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
   video: { flex: 1 },
-  path: { color: '#aaa', fontSize: 10, marginTop: 5, textAlign: 'center' }
+  path: { color: '#aaa', fontSize: 9, marginTop: 4, textAlign: 'center' },
+  sentinel: { width: 2, height: 2, alignSelf: 'center' },
 });

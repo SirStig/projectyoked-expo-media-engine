@@ -120,6 +120,10 @@
           </div>
 <pre><code>npm install @projectyoked/expo-media-engine@alpha
 npx expo prebuild</code></pre>
+          <div class="callout callout-warn" style="margin-top:1rem">
+            <p><strong>Expo Go is not supported.</strong> This module includes native Swift and Kotlin code that must be compiled into your app binary. You need a <a href="https://docs.expo.dev/develop/development-builds/introduction/" target="_blank" rel="noopener">development build</a> — run <code>eas build --profile development</code> or <code>npx expo run:ios</code> / <code>npx expo run:android</code> locally.</p>
+          </div>
+          <p style="margin-top:0.75rem">The <code>expo prebuild</code> step generates the native <code>ios/</code> and <code>android/</code> directories and wires up the module. If you've already run prebuild before, run it again after installing this package so the native projects are updated.</p>
         </section>
 
         <!-- ============ REQUIREMENTS ============ -->
@@ -148,6 +152,7 @@ npx expo prebuild</code></pre>
             <div class="section-icon">🚀</div>
             <h2>Quick start</h2>
           </div>
+          <p>The example below exports a two-clip video with a crossfade transition and background music. A high-quality 9:16 vertical output (1080×1920) is typical for mobile share videos.</p>
 <pre><code>import MediaEngine from '@projectyoked/expo-media-engine';
 
 const outputUri = await MediaEngine.composeCompositeVideo({
@@ -181,6 +186,9 @@ const outputUri = await MediaEngine.composeCompositeVideo({
     },
   ],
 });</code></pre>
+          <div class="callout callout-tip">
+            <p><strong>File paths:</strong> All URIs must be <code>file://</code> paths on the device. Use <a href="https://docs.expo.dev/versions/latest/sdk/filesystem/" target="_blank" rel="noopener">expo-file-system</a>'s <code>FileSystem.cacheDirectory</code> or <code>FileSystem.documentDirectory</code> to build output paths. Example: <code>`${FileSystem.cacheDirectory}output_${Date.now()}.mp4`</code></p>
+          </div>
         </section>
 
         <!-- ============ COMPOSE ============ -->
@@ -189,7 +197,18 @@ const outputUri = await MediaEngine.composeCompositeVideo({
             <div class="section-icon">🎬</div>
             <h2>composeCompositeVideo</h2>
           </div>
-          <p>The primary export function. Renders a <code>CompositionConfig</code> to a video file on disk.</p>
+          <p>The primary export function. Renders a <code>CompositionConfig</code> to a video file on disk. Returns the <code>outputUri</code> on success.</p>
+          <div class="fn-sig"><span class="fn-name">composeCompositeVideo</span>(config: CompositionConfig)<span class="ret">→ Promise&lt;string&gt;</span></div>
+          <p>The engine composites all tracks in order (bottom-to-top) and writes a single H.264 MP4. On both platforms the engine detects when re-encoding can be skipped entirely — for a single-clip composition with no transforms, filters, or overlays, the source bytes are passed through directly (zero quality loss, much faster).</p>
+          <h3>Choosing quality vs bitrate</h3>
+          <p>Use <code>quality</code> for convenience. Use <code>videoBitrate</code> when you need a specific file size target. At 1080p 30fps, typical values:</p>
+          <ul>
+            <li><strong><code>'low'</code> (1 Mbps)</strong> — acceptable for messaging/previews, visible compression artifacts at motion</li>
+            <li><strong><code>'medium'</code> (4 Mbps)</strong> — good general purpose, indistinguishable from source for most content</li>
+            <li><strong><code>'high'</code> (10 Mbps)</strong> — near-lossless; use when the output will be re-encoded downstream (e.g. platform upload)</li>
+          </ul>
+          <h3>Output dimensions</h3>
+          <p>If you omit <code>width</code>/<code>height</code>, the engine reads them from the first video clip's source metadata. Explicitly set them when mixing clips of different resolutions or when you want a specific aspect ratio (e.g. 1080×1920 for 9:16 Reels/TikTok).</p>
           <h3>Top-level config fields</h3>
           <div class="table-wrap">
             <table>
@@ -216,18 +235,39 @@ const outputUri = await MediaEngine.composeCompositeVideo({
             <div class="section-icon">🗂</div>
             <h2>Tracks &amp; clips</h2>
           </div>
-          <p>A <strong>track</strong> has a <code>type</code> and an ordered array of <code>clips</code>. Tracks are composited bottom-to-top.</p>
+          <p>A <strong>track</strong> has a <code>type</code> and an ordered array of <code>clips</code>. The <code>tracks</code> array is rendered bottom-to-top — the first entry sits at the back, the last entry sits in front.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Track type</th><th>Description</th></tr></thead>
               <tbody>
                 <tr><td><code>'video'</code></td><td>Video source clips with optional filters and transitions.</td></tr>
-                <tr><td><code>'audio'</code></td><td>Audio source clips with volume and fade controls.</td></tr>
-                <tr><td><code>'text'</code></td><td>Timed text/emoji overlays with full styling.</td></tr>
-                <tr><td><code>'image'</code></td><td>Timed image overlays with transforms.</td></tr>
+                <tr><td><code>'audio'</code></td><td>Audio-only source clips (mp3, m4a, wav) with volume and fade controls.</td></tr>
+                <tr><td><code>'text'</code></td><td>Timed text or emoji overlays rendered at the given position.</td></tr>
+                <tr><td><code>'image'</code></td><td>Timed image overlays with position, scale, rotation, and opacity.</td></tr>
               </tbody>
             </table>
           </div>
+          <h3>How audio works across tracks</h3>
+          <p>The engine mixes audio from <em>all</em> tracks — both dedicated <code>'audio'</code> tracks and the audio streams embedded in <code>'video'</code> clips. Use <code>volume: 0</code> on a video clip to silence its native audio while keeping the video, then add an independent <code>'audio'</code> track for music.</p>
+          <h3>Multiple video tracks (picture-in-picture)</h3>
+          <p>You can stack more than one <code>'video'</code> track. Each additional video track is composited on top of the previous ones using its <code>x</code>, <code>y</code>, <code>scale</code>, and <code>opacity</code> values — useful for picture-in-picture layouts.</p>
+<pre><code>tracks: [
+  // Background: full-frame workout footage
+  { type: 'video', clips: [{ uri: mainClip, startTime: 0, duration: 10 }] },
+
+  // Foreground: small reaction cam in the corner
+  {
+    type: 'video',
+    clips: [{
+      uri:       camClip,
+      startTime: 0,
+      duration:  10,
+      x:         0.78,   // normalized 0–1 from left
+      y:         0.12,   // normalized 0–1 from top
+      scale:     0.28,   // 28% of canvas size
+    }],
+  },
+]</code></pre>
         </section>
 
         <!-- ============ CLIP PROPS ============ -->
@@ -237,6 +277,26 @@ const outputUri = await MediaEngine.composeCompositeVideo({
             <h2>Clip properties</h2>
           </div>
           <p>All clip types share these base fields. Type-specific fields (text, image) are covered in their own sections.</p>
+
+          <h3>Coordinate system</h3>
+          <p>Position (<code>x</code>, <code>y</code>) uses a normalized 0–1 space relative to the output canvas. <code>(0, 0)</code> is the top-left corner, <code>(0.5, 0.5)</code> is the center, <code>(1, 1)</code> is the bottom-right. The value represents the <em>center point</em> of the clip.</p>
+
+          <h3>Source trimming</h3>
+          <p>Use <code>clipStart</code> and <code>clipEnd</code> to use only a portion of a source file. Both are in seconds relative to the source file's own timeline — independent of where the clip sits on the composition timeline.</p>
+<pre><code>// Use seconds 5–15 of a 60-second source
+{ uri: 'file:///long-workout.mp4', startTime: 0, duration: 10, clipStart: 5, clipEnd: 15 }</code></pre>
+
+          <h3>Speed</h3>
+          <p><code>speed</code> scales how fast the source plays relative to real time. A 5-second clip at <code>speed: 2</code> plays out in 2.5 seconds on the timeline. Use values below 1 for slow-motion, above 1 for fast-forward. The <code>duration</code> field should reflect the <em>output</em> duration after the speed change.</p>
+<pre><code>// 10-second source clip played back as 5-second fast-forward
+{ uri: 'file:///clip.mp4', startTime: 0, duration: 5, speed: 2.0 }</code></pre>
+
+          <h3>Resize modes</h3>
+          <ul>
+            <li><strong><code>'cover'</code></strong> — scales the clip to fill the frame, cropping excess edges. Best for full-frame video.</li>
+            <li><strong><code>'contain'</code></strong> — scales to fit entirely within the frame, adding letterbox/pillarbox bars.</li>
+            <li><strong><code>'stretch'</code></strong> — distorts to exactly fill the frame. Rarely used.</li>
+          </ul>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead>
@@ -273,7 +333,9 @@ const outputUri = await MediaEngine.composeCompositeVideo({
             <div class="section-icon">🎨</div>
             <h2>Filters</h2>
           </div>
-          <p>Set <code>filter</code> on any video or image clip. Use <code>filterIntensity</code> (0–1) to control strength.</p>
+          <p>Set <code>filter</code> on any video or image clip. Use <code>filterIntensity</code> (0–1) to blend from no effect (<code>0</code>) to full effect (<code>1</code>). Filters are applied in hardware on both platforms — iOS via <code>CIFilter</code>, Android via OpenGL ES fragment shaders — so they add negligible performance overhead.</p>
+<pre><code>// Subtle warm grade at 60% intensity
+{ uri: 'file:///clip.mp4', startTime: 0, duration: 5, filter: 'warm', filterIntensity: 0.6 }</code></pre>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Value</th><th>Effect</th><th>iOS</th><th>Android</th></tr></thead>
@@ -298,7 +360,29 @@ const outputUri = await MediaEngine.composeCompositeVideo({
             <div class="section-icon">🔀</div>
             <h2>Transitions</h2>
           </div>
-          <p>Set <code>transition</code> on a clip to apply a transition at that clip's boundary. Outgoing and incoming clips must overlap in time by at least <code>transitionDuration</code> seconds.</p>
+          <p>Set <code>transition</code> on the <strong>outgoing clip</strong> (the one that's ending). The outgoing and incoming clips must overlap on the timeline — the overlap window is the transition duration.</p>
+
+          <h3>Timeline overlap rule</h3>
+          <p>The key insight: to create a 1-second crossfade between clip A (5s) and clip B (5s), clip B's <code>startTime</code> must begin 1 second <em>before</em> clip A ends. The engine renders both clips during the overlap and blends them.</p>
+<pre><code>// Clip A: 0–5s. Clip B starts at 4s so there is a 1s overlap.
+// Set transition on clip A (the outgoing clip).
+clips: [
+  {
+    uri:                'file:///clip-a.mp4',
+    startTime:          0,
+    duration:           5,
+    transition:         'crossfade',
+    transitionDuration: 1,        // 1-second blend window
+  },
+  {
+    uri:       'file:///clip-b.mp4',
+    startTime: 4,                 // starts 1s before clip A ends
+    duration:  5,
+  },
+]</code></pre>
+          <div class="callout callout-warn">
+            <p><strong>Overlap is required.</strong> If the clips don't overlap by at least <code>transitionDuration</code> seconds the transition is silently skipped and the clips cut hard.</p>
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Value</th><th>Effect</th><th>iOS</th><th>Android</th></tr></thead>
@@ -322,7 +406,38 @@ const outputUri = await MediaEngine.composeCompositeVideo({
             <div class="section-icon">✍️</div>
             <h2>Text styling</h2>
           </div>
-          <p>Text clips support a <code>textStyle</code> object. All fields are optional.</p>
+          <p>Text clips support a <code>textStyle</code> object. All fields are optional. The clip's <code>x</code>/<code>y</code> properties control the center position of the text in normalized 0–1 coordinates. Emoji are fully supported — pass them directly in the <code>text</code> field.</p>
+<pre><code>// Bold white text with a dark stroke, centered near the top
+{
+  text:      '🔥 Personal Record!',
+  startTime: 1.5,
+  duration:  3,
+  x:         0.5,     // horizontally centered
+  y:         0.1,     // 10% from top
+  textStyle: {
+    fontSize:     58,
+    fontWeight:   'bold',
+    color:        '#FFFFFF',
+    strokeColor:  '#000000',
+    strokeWidth:  2,
+    shadowColor:  '#000000',
+    shadowRadius: 8,
+  },
+}
+
+// Text on a colored pill background
+{
+  text:      'Day 1',
+  startTime: 0,
+  duration:  5,
+  x: 0.5, y: 0.88,
+  textStyle: {
+    fontSize:         36,
+    color:            '#FFFFFF',
+    backgroundColor:  '#E11D48',
+    backgroundPadding: 12,
+  },
+}</code></pre>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead>
@@ -349,19 +464,58 @@ const outputUri = await MediaEngine.composeCompositeVideo({
             <div class="section-icon">🔊</div>
             <h2>Audio &amp; volume</h2>
           </div>
-          <p>Audio is mixed from all <code>audio</code> and <code>video</code> tracks. Per-clip controls:</p>
+          <p>Audio is mixed from all <code>audio</code> and <code>video</code> tracks. Priority order: <strong>volumeEnvelope</strong> (if provided) → <strong>fade</strong> in/out → <strong>flat volume</strong>.</p>
           <ul>
-            <li><code>volume</code> — flat multiplier 0–1</li>
-            <li><code>fadeInDuration</code> / <code>fadeOutDuration</code> — linear ramp at start/end</li>
-            <li><code>volumeEnvelope.keyframes</code> — time-based automation (overrides fade when provided)</li>
+            <li><code>volume</code> — flat multiplier 0–1 applied to the entire clip</li>
+            <li><code>fadeInDuration</code> / <code>fadeOutDuration</code> — linear ramp at clip start/end</li>
+            <li><code>volumeEnvelope.keyframes</code> — arbitrary time-based automation; overrides fades when provided</li>
           </ul>
-<pre><code>// Volume automation example
-volumeEnvelope: {
+
+          <h3>Common patterns</h3>
+<pre><code>// Pattern 1: Silence video audio, add background music
+tracks: [
+  {
+    type: 'video',
+    clips: [{ uri: clipUri, startTime: 0, duration: 30, volume: 0 }], // mute video
+  },
+  {
+    type: 'audio',
+    clips: [{
+      uri:             musicUri,
+      startTime:       0,
+      duration:        30,
+      volume:          0.9,
+      fadeOutDuration: 2,   // fade out last 2 seconds
+    }],
+  },
+]
+
+// Pattern 2: Duck music when video has important audio
+tracks: [
+  { type: 'video', clips: [{ uri: clipUri, startTime: 0, duration: 30, volume: 1.0 }] },
+  {
+    type: 'audio',
+    clips: [{
+      uri: musicUri, startTime: 0, duration: 30,
+      volumeEnvelope: {
+        keyframes: [
+          { time: 0,  volume: 0.8 },   // music plays normally
+          { time: 5,  volume: 0.2 },   // duck down under speech
+          { time: 15, volume: 0.8 },   // back up
+        ],
+      },
+    }],
+  },
+]</code></pre>
+
+          <h3>Volume keyframe automation</h3>
+          <p>Keyframe <code>time</code> values are in seconds relative to the <em>composition timeline</em> (not the clip's local time). The engine linearly interpolates volume between keyframes.</p>
+<pre><code>volumeEnvelope: {
   keyframes: [
-    { time: 0,   volume: 0 },  // start silent
-    { time: 1,   volume: 1 },  // ramp up over 1 second
-    { time: 8,   volume: 1 },  // hold
-    { time: 9.5, volume: 0 },  // ramp out
+    { time: 0,   volume: 0 },   // start silent
+    { time: 1,   volume: 1 },   // ramp up over 1 second
+    { time: 8,   volume: 1 },   // hold at full volume
+    { time: 9.5, volume: 0 },   // ramp out
   ],
 },</code></pre>
         </section>
@@ -372,12 +526,17 @@ volumeEnvelope: {
             <div class="section-icon">⚡</div>
             <h2>Preview engine overview</h2>
           </div>
-          <p>The preview system is designed for a CapCut-style layered editor:</p>
-          <ol style="margin:0.65rem 0">
-            <li><code>&lt;MediaEnginePreview&gt;</code> renders video tracks natively at ~30 fps — filters, transitions, and speed are applied in hardware, matching the export output exactly.</li>
-            <li><code>useCompositionOverlays(config, currentTime)</code> returns the active text and image clips with all transforms resolved, ready for your Skia or Reanimated overlay layer.</li>
-            <li>The same <code>CompositionConfig</code> drives both layers and the final export — no coordinate conversion needed.</li>
-          </ol>
+          <p>The preview system is a two-layer architecture designed for a CapCut-style editor. The native layer handles video accurately; the JS layer handles interactive overlays.</p>
+
+          <ul class="step-list">
+            <li><strong>Native video layer (<code>MediaEnginePreview</code>)</strong> — renders video and audio tracks at ~30 fps using the same hardware pipeline as the export engine. Filters, transitions, speed changes, and opacity all match the export exactly.</li>
+            <li><strong>JS overlay layer (<code>useCompositionOverlays</code>)</strong> — returns active text and image clips at the current time with all transforms resolved. Feed this to Skia, Reanimated, or standard RN views to render interactive draggable elements on top of the video.</li>
+            <li><strong>Single source of truth</strong> — the same <code>CompositionConfig</code> drives both layers and the final export. No coordinate conversion, no drift.</li>
+          </ul>
+
+          <div class="callout">
+            <p><strong>Why this split?</strong> Rendering text and images natively inside the video pipeline makes them non-interactive — you can't tap or drag a <code>CATextLayer</code>. By keeping them in JS, you get full gesture support (pan, pinch, rotate) while still knowing exactly where they'll land in the export because both systems use the same normalized 0–1 coordinate space.</p>
+          </div>
 <pre><code>import { useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import {
@@ -420,8 +579,51 @@ export function CompositionEditor({ config }) {
             <div class="section-icon">📺</div>
             <h2>MediaEnginePreview</h2>
           </div>
-          <p>A native Expo view that renders video and audio at ~30 fps using the export-accurate pipeline.</p>
+          <p>A native Expo view that renders video and audio at ~30 fps using the export-accurate pipeline. Import as a named export — not the default.</p>
 <pre><code>import { MediaEnginePreview } from '@projectyoked/expo-media-engine';</code></pre>
+
+          <h3>Play / pause / scrub example</h3>
+<pre><code>import { useState, useRef } from 'react';
+import { View, StyleSheet, Pressable, Text } from 'react-native';
+import { MediaEnginePreview } from '@projectyoked/expo-media-engine';
+
+export function VideoPlayer({ config }) {
+  const previewRef            = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime]       = useState(0);
+  const [duration, setDur]    = useState(0);
+
+  return (
+    &lt;View style={styles.container}&gt;
+      &lt;MediaEnginePreview
+        ref={previewRef}
+        config={config}
+        isPlaying={playing}
+        onLoad={e  =&gt; setDur(e.nativeEvent.duration)}
+        onTimeUpdate={e =&gt; setTime(e.nativeEvent.currentTime)}
+        onPlaybackEnded={() =&gt; setPlaying(false)}
+        style={StyleSheet.absoluteFill}
+      /&gt;
+
+      {/* Scrub while paused: update seekTo on slider change */}
+      &lt;Slider
+        value={time}
+        maximumValue={duration}
+        onValueChange={val =&gt; {
+          if (!playing) previewRef.current?.seekTo(val);
+        }}
+      /&gt;
+
+      &lt;Pressable onPress={() =&gt; setPlaying(p =&gt; !p)}&gt;
+        &lt;Text&gt;{playing ? 'Pause' : 'Play'}&lt;/Text&gt;
+      &lt;/Pressable&gt;
+    &lt;/View&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-tip">
+            <p><strong>Scrubbing while paused:</strong> set <code>isPlaying={false}</code> then call <code>previewRef.current.seekTo(seconds)</code> in response to a slider gesture. Use the <code>currentTime</code> prop when you need declarative control (e.g. a driven animation); use the <code>seekTo</code> ref for imperative seeks.</p>
+          </div>
 
           <h3>Props</h3>
           <div class="table-wrap">
@@ -460,27 +662,76 @@ export function CompositionEditor({ config }) {
             <div class="section-icon">🧩</div>
             <h2>useCompositionOverlays</h2>
           </div>
-          <p>Returns all text and image clips active at <code>currentTime</code>, with transforms and keyframe animations resolved. Memoized — only recalculates when <code>config</code> or <code>currentTime</code> changes.</p>
+          <p>Returns all text and image clips active at <code>currentTime</code>, with transforms and keyframe animations resolved. Memoized — only recalculates when <code>config</code> or <code>currentTime</code> changes. The <code>id</code> is stable across re-renders, making it safe to use as a React key.</p>
 <pre><code>import { useCompositionOverlays } from '@projectyoked/expo-media-engine';
 
 const overlays = useCompositionOverlays(config, currentTime);
 // returns: ActiveOverlay[]</code></pre>
+
+          <h3>Mapping to Skia / RN components</h3>
+          <p>Each <code>ActiveOverlay</code> gives you everything you need to position and render it. The <code>x</code>/<code>y</code> values are 0–1 normalized — multiply by your canvas dimensions to get screen pixels. <code>localTime</code> is useful for driving per-clip animations (e.g. a typewriter entrance effect).</p>
+<pre><code>import { Canvas, Text as SkText, Image, useImage } from '@shopify/react-native-skia';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+
+// Minimal example — render each overlay as an absolutely-positioned view
+function OverlayLayer({ overlays, canvasWidth, canvasHeight }) {
+  return (
+    &lt;View style={StyleSheet.absoluteFill} pointerEvents="box-none"&gt;
+      {overlays.map(o =&gt; {
+        const left = o.x * canvasWidth;
+        const top  = o.y * canvasHeight;
+
+        return (
+          &lt;DraggableOverlay
+            key={o.id}
+            style={{
+              position: 'absolute',
+              left,
+              top,
+              transform: [
+                { translateX: -left },  // anchor to center
+                { translateY: -top },
+                { scale:    o.scale },
+                { rotate:   `${o.rotation}deg` },
+                { translateX: left },
+                { translateY: top },
+              ],
+              opacity: o.opacity,
+            }}
+          &gt;
+            {o.type === 'text' ? (
+              &lt;Text style={{ fontSize: o.fontSize, color: o.color, fontWeight: o.fontWeight }}&gt;
+                {o.text}
+              &lt;/Text&gt;
+            ) : (
+              &lt;Image source={{ uri: o.uri }} style={{ width: 80, height: 80 }} /&gt;
+            )}
+          &lt;/DraggableOverlay&gt;
+        );
+      })}
+    &lt;/View&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-tip">
+            <p><strong>Persisting gesture changes:</strong> when the user drags/resizes an overlay, update the corresponding clip's <code>x</code>, <code>y</code>, <code>scale</code>, or <code>rotation</code> in your <code>config</code> state. Because <code>useCompositionOverlays</code> reads from <code>config</code>, the overlay snaps to the new position on the next render — and the same values are used by the export engine automatically.</p>
+          </div>
 
           <h3>ActiveOverlay fields</h3>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
               <tbody>
-                <tr><td><code>id</code></td><td>string</td><td>Stable key: <code>"track-{n}-clip-{n}"</code>.</td></tr>
+                <tr><td><code>id</code></td><td>string</td><td>Stable key: <code>"track-{n}-clip-{n}"</code>. Use as React <code>key</code>.</td></tr>
                 <tr><td><code>type</code></td><td><code>'text'</code> | <code>'image'</code></td><td>Clip type.</td></tr>
-                <tr><td><code>x</code> / <code>y</code></td><td>number</td><td>Resolved center position 0–1.</td></tr>
+                <tr><td><code>x</code> / <code>y</code></td><td>number</td><td>Resolved center position 0–1. Multiply by canvas size to get screen pixels.</td></tr>
                 <tr><td><code>scale</code></td><td>number</td><td>Resolved scale multiplier.</td></tr>
                 <tr><td><code>rotation</code></td><td>number</td><td>Resolved rotation in degrees.</td></tr>
                 <tr><td><code>opacity</code></td><td>number</td><td>Resolved opacity 0–1.</td></tr>
-                <tr><td><code>localTime</code></td><td>number</td><td>Seconds elapsed since this clip's <code>startTime</code>.</td></tr>
+                <tr><td><code>localTime</code></td><td>number</td><td>Seconds since this clip's <code>startTime</code>. Drive per-clip entrance animations with this.</td></tr>
                 <tr><td><code>text</code></td><td>string</td><td>Text content (text clips only).</td></tr>
                 <tr><td><code>uri</code></td><td>string</td><td>Image file URI (image clips only).</td></tr>
-                <tr><td><code>color</code>, <code>fontSize</code>, <code>fontWeight</code>, <code>shadowColor</code>, <code>strokeColor</code>, …</td><td>various</td><td>All text style fields, resolved from <code>textStyle</code>.</td></tr>
+                <tr><td><code>color</code>, <code>fontSize</code>, <code>fontWeight</code>, <code>shadowColor</code>, <code>strokeColor</code>, …</td><td>various</td><td>All text style fields resolved from <code>textStyle</code>.</td></tr>
               </tbody>
             </table>
           </div>
@@ -492,11 +743,16 @@ const overlays = useCompositionOverlays(config, currentTime);
             <div class="section-icon">🔗</div>
             <h2>stitchVideos</h2>
           </div>
-          <p>Concatenate videos end-to-end in the order provided. Uses a fast passthrough path where possible; falls back to full transcoding if sources are incompatible.</p>
+          <p>Concatenate videos end-to-end in the order provided. Returns the output URI on success.</p>
+          <div class="fn-sig"><span class="fn-name">stitchVideos</span>(uris: string[], outputUri: string)<span class="ret">→ Promise&lt;string&gt;</span></div>
 <pre><code>await MediaEngine.stitchVideos(
   ['file:///clip1.mp4', 'file:///clip2.mp4', 'file:///clip3.mp4'],
   'file:///output.mp4'
 );</code></pre>
+          <p><strong>Fast path vs transcoding:</strong> on Android, the engine first tries a fast mp4parser byte-copy (no re-encoding, instant, lossless). If the clips have incompatible codecs, resolutions, or container metadata, it falls back to a full transcode pass. On iOS, concatenation always uses <code>AVMutableComposition</code> with passthrough export. Expect the fast path when all clips come from the same camera and share identical encoding parameters.</p>
+          <div class="callout callout-tip">
+            <p>Use <code>stitchVideos</code> for simple joins with no visual edits. For anything with filters, transitions, text, or mixed sources, use <code>composeCompositeVideo</code> instead.</p>
+          </div>
         </section>
 
         <!-- ============ COMPRESS ============ -->
@@ -505,13 +761,19 @@ const overlays = useCompositionOverlays(config, currentTime);
             <div class="section-icon">📉</div>
             <h2>compressVideo</h2>
           </div>
-          <p>Re-encode a video at a lower bitrate or resolution. Useful for reducing file size before upload.</p>
-<pre><code>await MediaEngine.compressVideo({
+          <p>Re-encode a video at a lower bitrate or resolution. Useful for reducing file size before upload or sharing.</p>
+          <div class="fn-sig"><span class="fn-name">compressVideo</span>(config: CompressVideoConfig)<span class="ret">→ Promise&lt;string&gt;</span></div>
+<pre><code>// Compress for upload — medium quality, capped at 720p
+await MediaEngine.compressVideo({
   inputUri:  'file:///input.mp4',
   outputUri: 'file:///compressed.mp4',
-  quality:   'medium',   // 'low' | 'medium' | 'high'
-  codec:     'h265',     // Android: ~40% smaller than H.264
+  quality:   'medium',
+  maxWidth:  1280,
+  maxHeight: 720,
 });</code></pre>
+          <h3>H.264 vs H.265</h3>
+          <p>H.265 (HEVC) produces roughly 40% smaller files at equivalent quality compared to H.264. The trade-off is slower encoding (about 2× on Android) and slightly wider player compatibility requirements. H.265 is available on Android via the <code>codec: 'h265'</code> option. On iOS the export always uses H.264 regardless of this field.</p>
+          <p>As a rule of thumb: use <code>'h264'</code> for maximum compatibility, <code>'h265'</code> when file size is critical (e.g. low-bandwidth upload).</p>
 
           <div class="table-wrap">
             <table>
@@ -537,9 +799,20 @@ const overlays = useCompositionOverlays(config, currentTime);
             <div class="section-icon">〰️</div>
             <h2>getWaveform</h2>
           </div>
-          <p>Returns a normalized array of RMS amplitude values (0–1) for waveform visualization.</p>
+          <p>Decodes an audio file and returns a normalized array of RMS amplitude values (0–1) representing energy across the file. Use it to render a scrollable waveform timeline or a waveform thumbnail.</p>
+          <div class="fn-sig"><span class="fn-name">getWaveform</span>(uri: string, samples?: number)<span class="ret">→ Promise&lt;number[]&gt;</span></div>
 <pre><code>const amplitudes = await MediaEngine.getWaveform('file:///audio.mp3', 200);
-// number[] of length 200</code></pre>
+// number[] of length 200, each value 0.0–1.0</code></pre>
+
+          <h3>Choosing a sample count</h3>
+          <ul>
+            <li><strong>200–400</strong> — scrollable timeline waveform for a typical mobile screen width</li>
+            <li><strong>50–80</strong> — compact waveform thumbnail or inline clip preview</li>
+            <li><strong>1000+</strong> — high-resolution waveform (e.g. desktop-scale editor). Higher counts take proportionally longer to generate.</li>
+          </ul>
+          <div class="callout callout-tip">
+            <p>Works on both audio files (mp3, m4a, wav) and video files — the engine extracts the audio track automatically. Pass the same URI you'd give to a video composition clip.</p>
+          </div>
         </section>
 
         <!-- ============ EXTRACT AUDIO ============ -->
@@ -548,8 +821,21 @@ const overlays = useCompositionOverlays(config, currentTime);
             <div class="section-icon">🎵</div>
             <h2>extractAudio</h2>
           </div>
-          <p>Pulls the audio track from a video file and saves it as <code>.m4a</code>.</p>
-<pre><code>await MediaEngine.extractAudio('file:///video.mp4', 'file:///audio.m4a');</code></pre>
+          <p>Extracts the audio track from a video file and writes it to an <code>.m4a</code> (AAC in MPEG-4 container) file. The audio is remuxed without re-encoding — fast and lossless on both platforms.</p>
+          <div class="fn-sig"><span class="fn-name">extractAudio</span>(videoUri: string, outputUri: string)<span class="ret">→ Promise&lt;string&gt;</span></div>
+<pre><code>const audioUri = await MediaEngine.extractAudio(
+  'file:///workout.mp4',
+  `${FileSystem.cacheDirectory}audio_${Date.now()}.m4a`
+);</code></pre>
+          <p><strong>Common use cases:</strong></p>
+          <ul>
+            <li>Extract audio before passing it to <code>getWaveform</code> for a timeline visualization</li>
+            <li>Save a clip's audio for later mixing in a separate audio track</li>
+            <li>Provide a share sheet audio-only export</li>
+          </ul>
+          <div class="callout callout-warn">
+            <p><strong>Output path:</strong> the output URI must end in <code>.m4a</code> and the directory must exist. If a file already exists at that path it will be overwritten.</p>
+          </div>
         </section>
 
         <!-- ============ IS AVAILABLE ============ -->
@@ -558,10 +844,25 @@ const overlays = useCompositionOverlays(config, currentTime);
             <div class="section-icon">🔍</div>
             <h2>isAvailable</h2>
           </div>
-          <p>Returns <code>true</code> if the native module is linked. Check before calling any other function if you need a graceful fallback (e.g. in Storybook or web).</p>
-<pre><code>if (!MediaEngine.isAvailable()) {
-  console.warn('Native module not linked — rebuild the dev client.');
-}</code></pre>
+          <p>Returns <code>true</code> if the native module is linked and callable. Returns <code>false</code> when running in Expo Go, a web browser, or any environment where the native binary hasn't been compiled in.</p>
+          <div class="fn-sig"><span class="fn-name">isAvailable</span>()<span class="ret">→ boolean</span></div>
+<pre><code>import MediaEngine from '@projectyoked/expo-media-engine';
+
+// Guard at the top of a screen component
+if (!MediaEngine.isAvailable()) {
+  // Show a fallback UI or return early
+  return &lt;Text&gt;Video editing is not available in this environment.&lt;/Text&gt;;
+}
+
+// Or as a one-time startup check
+useEffect(() =&gt; {
+  if (!MediaEngine.isAvailable()) {
+    Alert.alert('Build required', 'Run expo prebuild and rebuild the app.');
+  }
+}, []);</code></pre>
+          <div class="callout">
+            <p>In production apps you'll almost never need this guard since you control the build environment. It's most useful during development when toggling between Expo Go and a dev client.</p>
+          </div>
         </section>
 
         <!-- ============ TYPESCRIPT ============ -->

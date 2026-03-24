@@ -1,0 +1,13 @@
+appId: com.joshuayoked.example
+---
+# Requires: example app installed on booted Simulator / Emulator (expo run:ios | expo run:android).
+# Taps RUN ALL TESTS and waits until the integration catalog finishes (success sentinel).
+- launchApp
+- tapOn:
+    id: run-all-integration-tests
+- extendedWaitUntil:
+    visible:
+      id: integration-suite-complete
+    timeout: 1800000
+- assertNotVisible:
+    id: integration-suite-failed

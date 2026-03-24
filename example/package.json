@@ -6,16 +6,19 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "integration:maestro": "cd .. && npm run test:integration:ios"
   },
   "dependencies": {
     "expo": "~54.0.31",
     "expo-asset": "^12.0.12",
     "expo-av": "^16.0.8",
+    "expo-constants": "^55.0.9",
     "expo-file-system": "^19.0.21",
     "expo-image-picker": "^17.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-video": "~3.0.15",
+    "js-sha256": "^0.11.1",
     "react": "19.1.0",
     "react-native": "0.81.5"
   },

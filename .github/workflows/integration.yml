@@ -1,0 +1,36 @@
+name: Native integration
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify-js-and-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run validate
+
+      - name: Verify fixture manifest URLs and SHA-256
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y jq
+          while IFS= read -r row; do
+            url=$(echo "$row" | jq -r .url)
+            expected=$(echo "$row" | jq -r '.sha256 | ascii_downcase')
+            id=$(echo "$row" | jq -r .id)
+            curl -fsSL "$url" -o "/tmp/media-engine-fixture-$id.bin"
+            actual=$(shasum -a 256 "/tmp/media-engine-fixture-$id.bin" | awk '{print tolower($1)}')
+            if [ "$actual" != "$expected" ]; then
+              echo "SHA256 mismatch for $id: expected $expected got $actual"
+              exit 1
+            fi
+          done < <(jq -c '.entries[]' example/integration/fixtures.manifest.json)

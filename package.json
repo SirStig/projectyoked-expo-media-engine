@@ -40,6 +40,8 @@
         "test:watch": "jest --watch",
         "typecheck": "tsc --noEmit",
         "validate": "npm run lint && npm run typecheck && npm test",
+        "test:integration:ios": "bash scripts/run-integration-ios.sh",
+        "test:integration:android": "bash scripts/run-integration-android.sh",
         "prepare": "npm run build",
         "build": "echo \"Native module - no build step required\"",
         "clean": "rm -rf node_modules && rm -rf ios/build && rm -rf android/build && rm -rf android/.gradle",

@@ -681,6 +681,87 @@ tbody tr:hover td { background: var(--glass); }
 #changelog-body code { font-size: 0.8em; }
 #changelog-body a { word-break: break-word; }
 
+/* ===== CALLOUTS ===== */
+.callout {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--r);
+  border-left: 3px solid var(--accent);
+  background: var(--accent-glow);
+  font-size: 0.875rem;
+  margin: 1rem 0;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.callout p { margin: 0; color: var(--muted); }
+.callout strong { color: var(--text); }
+.callout code { font-size: 0.82em; }
+.callout a { color: var(--accent); }
+
+.callout-tip {
+  border-left-color: #22c55e;
+  background: rgba(34,197,94,0.06);
+}
+[data-theme="light"] .callout-tip { background: rgba(34,197,94,0.07); }
+
+.callout-warn {
+  border-left-color: var(--warn-text);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+.callout-warn p { color: var(--warn-text); }
+.callout-warn strong { color: var(--warn-text); }
+
+/* Step list */
+.step-list { list-style: none; padding: 0; margin: 0.75rem 0; counter-reset: steps; }
+.step-list li {
+  counter-increment: steps;
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  margin: 0.75rem 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.step-list li::before {
+  content: counter(steps);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  border: 1px solid rgba(34,211,238,0.2);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+.step-list li strong { color: var(--text); }
+.step-list li code { font-size: 0.82em; }
+
+/* Function signature bar */
+.fn-sig {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--r-sm);
+  padding: 0.45rem 0.85rem;
+  margin: 0 0 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.fn-sig .ret { color: var(--accent); margin-left: auto; }
+.fn-sig .fn-name { color: var(--text); font-weight: 500; }
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 900px) {
   .page-layout { grid-template-columns: 1fr; }
