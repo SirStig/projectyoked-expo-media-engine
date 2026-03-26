@@ -25,7 +25,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../assets/style.css?v=3">
+  <link rel="stylesheet" href="../assets/style.css?v=4">
   <script type="application/ld+json">
   [
     {
@@ -88,6 +88,18 @@
     <!-- SIDEBAR -->
     <aside class="sidebar" id="sidebar">
 
+      <div class="sidebar-group sidebar-mobile-only">
+        <span class="sidebar-label">Site</span>
+        <a class="sidebar-link" href="../stable/">Stable</a>
+        <a class="sidebar-link active" href="../alpha/">Pre-release</a>
+        <a class="sidebar-link" href="../changelog.html">Changelog</a>
+        <a class="sidebar-link sidebar-ext" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm package</a>
+        <a class="sidebar-link sidebar-ext" href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener">GitHub</a>
+        <button type="button" class="theme-btn" aria-label="Toggle theme">☀ Light</button>
+      </div>
+
+      <div class="sidebar-divider sidebar-mobile-only"></div>
+
       <div class="sidebar-group">
         <span class="sidebar-label">Getting started</span>
         <a class="sidebar-link" href="#install">Installation</a>
@@ -146,6 +158,9 @@
       </div>
 
     </aside>
+
+    <div class="page-main">
+    <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
 
     <!-- CONTENT -->
     <main class="content">
@@ -974,10 +989,9 @@ useEffect(() =&gt; {
 
       </div>
     </main>
+    </div>
   </div>
 
-  <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
-
-  <script src="../assets/app.js?v=3"></script>
+  <script src="../assets/app.js?v=4"></script>
 </body>
 </html>
