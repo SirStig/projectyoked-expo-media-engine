@@ -451,9 +451,8 @@ tbody tr:hover td { background: var(--glass); }
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0,0,0,0.5);
   z-index: 150;
-  backdrop-filter: blur(2px);
 }
 .sidebar-overlay.visible { display: block; }
 
@@ -778,7 +777,10 @@ tbody tr:hover td { background: var(--glass); }
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 900px) {
-  .page-layout { grid-template-columns: 1fr; }
+  .page-layout {
+    grid-template-columns: 1fr;
+    z-index: auto;
+  }
 
   .sidebar {
     position: fixed;
