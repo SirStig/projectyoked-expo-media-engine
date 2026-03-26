@@ -68,7 +68,7 @@
       <a class="header-badge" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm ↗</a>
       <button class="theme-btn" aria-label="Toggle theme">☀ Light</button>
     </nav>
-    <button class="menu-btn" id="menuBtn" aria-label="Open menu">
+    <button type="button" class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
       <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
         <rect width="18" height="2" rx="1" fill="currentColor"/>
         <rect y="6" width="18" height="2" rx="1" fill="currentColor"/>
@@ -76,6 +76,23 @@
       </svg>
     </button>
   </header>
+
+  <aside class="sidebar sidebar--site-nav" id="sidebar" aria-label="Site menu">
+    <div class="sidebar-group">
+      <span class="sidebar-label">Documentation</span>
+      <a class="sidebar-link" href="./">Home</a>
+      <a class="sidebar-link" href="./alpha/">Pre-release</a>
+      <a class="sidebar-link" href="./stable/">Stable (0.1.x)</a>
+      <a class="sidebar-link" href="./changelog.html">Changelog</a>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-group">
+      <span class="sidebar-label">Links</span>
+      <a class="sidebar-link sidebar-ext" href="https://www.npmjs.com/package/@projectyoked/expo-media-engine" target="_blank" rel="noopener">npm package</a>
+      <a class="sidebar-link sidebar-ext" href="https://github.com/SirStig/projectyoked-expo-media-engine" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </aside>
+  <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
 
   <div style="position:relative;z-index:1;padding-top:var(--header-h)">
     <div class="changelog-wrap">
