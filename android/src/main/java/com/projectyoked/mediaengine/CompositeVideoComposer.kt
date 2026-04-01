@@ -504,6 +504,8 @@ class CompositeVideoComposer(private val context: Context, private val config: C
                             it.resizeMode != "cover" ||
                             it.scale != 1f ||
                             it.rotation != 0f ||
+                            it.x != 0f ||
+                            it.y != 0f ||
                             it.clipStart > 0.0 ||
                             it.clipEnd > 0.0
                 }
@@ -534,6 +536,10 @@ class CompositeVideoComposer(private val context: Context, private val config: C
         if (clip.filter != null) return false
         if (clip.rotation != 0f) return false
         if (clip.scale != 1f) return false
+        if (clip.x != 0f || clip.y != 0f) return false
+        if (clip.opacity < 1.0f) return false
+        if (clip.speed != 1.0) return false
+        if (clip.resizeMode != "cover") return false
         // Source-level trimming: clipStart/clipEnd requires re-encoding
         if (clip.clipStart > 0.0 || clip.clipEnd > 0.0) return false
 

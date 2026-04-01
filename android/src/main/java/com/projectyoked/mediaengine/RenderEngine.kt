@@ -381,12 +381,16 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
             }
 
             // 2. Drain Output (Burst until frame)
+            // NOTE: bufferInfo.size is commonly 0 for Surface-backed decoders even for
+            // valid frames (Android spec does not guarantee non-zero size for Surface output).
+            // Use the EOS flag to distinguish valid frames from end-of-stream instead.
             var outputAvailable = true
             while (outputAvailable && !frameRendered) {
                 val outBufIdx = decoder.dequeueOutputBuffer(bufferInfo, 10000)
                 if (outBufIdx >= 0) {
-                    if (bufferInfo.size > 0) {
-                        decoder.releaseOutputBuffer(outBufIdx, true)
+                    val isEos = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+                    decoder.releaseOutputBuffer(outBufIdx, !isEos) // render to surface unless EOS
+                    if (!isEos) {
                         st.updateTexImage()
                         val stMatrix = FloatArray(16)
                         st.getTransformMatrix(stMatrix)
@@ -395,10 +399,6 @@ class RenderEngine(val context: Context, val config: CompositeVideoComposer.Comp
                         frameRendered = true
                         outputAvailable = false
                     } else {
-                        decoder.releaseOutputBuffer(outBufIdx, false)
-                    }
-
-                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                         Log.d("RenderEngine", "Output EOS encountered")
                         return
                     }

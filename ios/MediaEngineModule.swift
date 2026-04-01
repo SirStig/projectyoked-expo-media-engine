@@ -899,13 +899,27 @@ public class MediaEngineModule: Module {
                      let clips = vTrack["clips"] as? [[String: Any]] ?? []
                      if clips.count == 1 {
                          let clip = clips[0]
-                         let scale = clip["scale"] as? Double ?? 1.0
-                         let rotation = clip["rotation"] as? Double ?? 0.0
-                         let filter = clip["filter"] as? String
-                         let clipStart = clip["clipStart"] as? Double ?? 0.0
-                         let clipEnd = clip["clipEnd"] as? Double ?? -1.0
+                         let scale      = clip["scale"]      as? Double ?? 1.0
+                         let rotation   = clip["rotation"]   as? Double ?? 0.0
+                         let filter     = clip["filter"]     as? String
+                         let clipStart  = clip["clipStart"]  as? Double ?? 0.0
+                         let clipEnd    = clip["clipEnd"]    as? Double ?? -1.0
+                         let x          = clip["x"]          as? Double ?? 0.0
+                         let y          = clip["y"]          as? Double ?? 0.0
+                         let resizeMode = clip["resizeMode"] as? String ?? "cover"
+                         let opacity    = clip["opacity"]    as? Double ?? 1.0
+                         let speed      = clip["speed"]      as? Double ?? 1.0
 
-                         if scale == 1.0 && rotation == 0.0 && filter == nil && clipStart == 0.0 && clipEnd < 0 {
+                         if scale == 1.0
+                             && rotation == 0.0
+                             && filter == nil
+                             && clipStart == 0.0
+                             && clipEnd < 0
+                             && x == 0.0
+                             && y == 0.0
+                             && resizeMode == "cover"
+                             && opacity >= 1.0
+                             && speed == 1.0 {
                              usePassthrough = true
                          }
                      }
