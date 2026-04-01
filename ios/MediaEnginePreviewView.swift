@@ -110,7 +110,10 @@ public class MediaEnginePreviewView: ExpoView {
 
     func setCurrentTime(_ seconds: Double) {
         let t = CMTime(seconds: seconds, preferredTimescale: 600)
-        player?.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
+        // Use a small tolerance (100 ms) for fast seeking; zero-tolerance is expensive
+        // and causes the player to stall when called frequently during playback.
+        let tol = CMTime(seconds: 0.1, preferredTimescale: 600)
+        player?.seek(to: t, toleranceBefore: tol, toleranceAfter: tol)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -146,12 +149,16 @@ public class MediaEnginePreviewView: ExpoView {
         guard !videoTracks.isEmpty else { return nil }
 
         let composition  = AVMutableComposition()
+        // Standard-path instructions (AVMutableVideoCompositionLayerInstruction handles transforms)
         var instructions = [AVMutableVideoCompositionInstruction]()
+        // Compositor-path instructions (MediaEngineInstruction carries filter/opacity data)
+        var compositorInstructions = [MediaEngineInstruction]()
 
         var needsCompositor = false
         var trackID: CMPersistentTrackID = 1
 
-        var insertCursor = CMTime.zero
+        let width  = configDict["width"]  as? Int ?? 1280
+        let height = configDict["height"] as? Int ?? 720
 
         // ── Add video clips ───────────────────────────────────────────────────
         for track in videoTracks {
@@ -167,6 +174,14 @@ public class MediaEnginePreviewView: ExpoView {
                 let speed      = clip["speed"]     as? Double ?? 1.0
                 let opacity    = Float(clip["opacity"] as? Double ?? 1.0)
                 let filterType = clip["filter"]    as? String ?? "none"
+                let filterIntensity = Float(clip["filterIntensity"] as? Double ?? 1.0)
+
+                // Spatial transform props
+                let x          = clip["x"]          as? Double ?? 0.0
+                let y          = clip["y"]          as? Double ?? 0.0
+                let scale      = clip["scale"]      as? Double ?? 1.0
+                let userRotation = clip["rotation"] as? Double ?? 0.0
+                let resizeMode = clip["resizeMode"] as? String ?? "cover"
 
                 guard let assetVideoTrack = asset.tracks(withMediaType: .video).first else { continue }
 
@@ -200,25 +215,75 @@ public class MediaEnginePreviewView: ExpoView {
                     )
                 }
 
-                // Track instruction
-                let instruction = AVMutableVideoCompositionInstruction()
-                instruction.timeRange = CMTimeRange(
-                    start:    insertAt,
-                    duration: CMTime(seconds: duration, preferredTimescale: 600)
-                )
+                // ── Build layer instruction with full spatial transform ────────
+                let clipDuration = CMTime(seconds: duration, preferredTimescale: 600)
+                let instructionTimeRange = CMTimeRange(start: insertAt, duration: clipDuration)
+
                 let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compTrack)
+
+                // Apply preferredTransform (handles device rotation, e.g. portrait videos)
+                let prefTransform = assetVideoTrack.preferredTransform
+                let naturalSize   = assetVideoTrack.naturalSize
+                // Detect portrait rotation by checking if the transform swaps width/height
+                let isPortrait = abs(prefTransform.b) == 1.0 || abs(prefTransform.c) == 1.0
+                let videoW = isPortrait ? naturalSize.height : naturalSize.width
+                let videoH = isPortrait ? naturalSize.width  : naturalSize.height
+                let targetW = CGFloat(width)
+                let targetH = CGFloat(height)
+
+                // Compute fill scale based on resizeMode
+                var scaleX: CGFloat
+                var scaleY: CGFloat
+                switch resizeMode {
+                case "contain":
+                    let r = min(targetW / videoW, targetH / videoH)
+                    scaleX = r; scaleY = r
+                case "stretch":
+                    scaleX = targetW / videoW; scaleY = targetH / videoH
+                default: // "cover"
+                    let r = max(targetW / videoW, targetH / videoH)
+                    scaleX = r; scaleY = r
+                }
+
+                // Build transform: preferredTransform → resize → user scale → user rotation → center + offset
+                var t = prefTransform
+                    .concatenating(CGAffineTransform(scaleX: scaleX * CGFloat(scale),
+                                                      y: scaleY * CGFloat(scale)))
+                if abs(userRotation) > 0.001 {
+                    t = t.rotated(by: CGFloat(userRotation * .pi / 180.0))
+                }
+                let scaledW = videoW * scaleX * CGFloat(scale)
+                let scaledH = videoH * scaleY * CGFloat(scale)
+                let dx = (targetW - scaledW) / 2.0 + CGFloat(x) * targetW
+                let dy = (targetH - scaledH) / 2.0 + CGFloat(y) * targetH
+                t = t.translatedBy(x: dx / (scaleX * CGFloat(scale)),
+                                   y: dy / (scaleY * CGFloat(scale)))
+                layerInstruction.setTransform(t, at: insertAt)
+
                 if opacity < 0.999 {
                     layerInstruction.setOpacity(opacity, at: insertAt)
                     needsCompositor = true
                 }
+
+                // Standard-path instruction
+                let instruction = AVMutableVideoCompositionInstruction()
+                instruction.timeRange = instructionTimeRange
                 instruction.layerInstructions = [layerInstruction]
                 instructions.append(instruction)
+
+                // Compositor-path instruction (carries filter + opacity for MediaEngineCompositor)
+                let meInstruction = MediaEngineInstruction(
+                    timeRange:        instructionTimeRange,
+                    trackID:          trackID,
+                    filterType:       filterType,
+                    filterIntensity:  filterIntensity,
+                    opacity:          opacity
+                )
+                compositorInstructions.append(meInstruction)
 
                 if filterType != "none" { needsCompositor = true }
 
                 trackID += 1
-                insertCursor = CMTimeMaximum(insertCursor,
-                    CMTimeAdd(insertAt, CMTime(seconds: duration, preferredTimescale: 600)))
             }
         }
 
@@ -252,19 +317,18 @@ public class MediaEnginePreviewView: ExpoView {
         // ── Build AVVideoComposition ──────────────────────────────────────────
         var videoComposition: AVVideoComposition?
 
-        let width  = configDict["width"]  as? Int ?? 1280
-        let height = configDict["height"] as? Int ?? 720
-
         if needsCompositor {
-            // Full custom compositor path (same as export — handles filters & opacity)
+            // Full custom compositor path — uses MediaEngineInstruction so that
+            // MediaEngineCompositor.startRequest can cast successfully.
             let vc = AVMutableVideoComposition()
             vc.customVideoCompositorClass = MediaEngineCompositor.self
             vc.renderSize = CGSize(width: width, height: height)
             vc.frameDuration = CMTime(value: 1, timescale: 30)
-            vc.instructions = instructions
+            vc.instructions = compositorInstructions
             videoComposition = vc
         } else if !instructions.isEmpty {
-            // Standard path (no filters, no custom compositor)
+            // Standard path (no filters, no custom compositor) — spatial transforms
+            // are already baked into the AVMutableVideoCompositionLayerInstruction.
             let vc = AVMutableVideoComposition()
             vc.renderSize = CGSize(width: width, height: height)
             vc.frameDuration = CMTime(value: 1, timescale: 30)
